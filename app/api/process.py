@@ -15,6 +15,9 @@ def eprint(*args, **kwargs):
     print(*args, file=sys.stderr, **kwargs)
 
 # Try importing libraries, but provide fallbacks if they're not available
+# First check if we're running in venv
+IN_VENV = sys.prefix != sys.base_prefix
+
 DEPENDENCIES = {
     'librosa': False,
     'tensorflow': False,
@@ -29,6 +32,9 @@ ML_READY = False
 SEARCH_READY = False
 AUDIO_READY = False
 EMBEDDINGS_AVAILABLE = False
+
+if not IN_VENV:
+    eprint("Warning: Not running in a virtual environment. Some dependencies may not be available.")
 MODELS_AVAILABLE = False
 
 try:

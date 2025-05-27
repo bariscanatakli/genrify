@@ -61,5 +61,32 @@ export function createPythonJsonCommand(
     return JSON.stringify(arg);
   }).join(', ');
   
-  return `python -c "import sys; sys.path.append('${scriptPath}'); from process import ${functionName}, output_json; output_json(${functionName}('${filePath}'${args.length ? ', ' + pyArgs : ''}))" 2>&1`;
+  return `./venv/bin/python -c "import sys; sys.path.append('${scriptPath}'); from process import ${functionName}, output_json; output_json(${functionName}('${filePath}'${args.length ? ', ' + pyArgs : ''}))" 2>&1`;
+}
+
+/**
+ * Create a Python-safe command with environment variables
+ * Useful for configuring CUDA/GPU behavior
+ */
+export function createPythonJsonCommandWithEnv(
+  scriptPath: string, 
+  functionName: string, 
+  filePath: string,
+  envVars: Record<string, string> = {},
+  ...args: any[]
+): string {
+  // Format arguments as Python literals
+  const pyArgs = args.map(arg => {
+    if (typeof arg === 'string') return `'${arg}'`;
+    if (typeof arg === 'number') return arg.toString();
+    if (typeof arg === 'boolean') return arg ? 'True' : 'False';
+    return JSON.stringify(arg);
+  }).join(', ');
+  
+  // Format environment variables
+  const envPrefix = Object.entries(envVars)
+    .map(([key, value]) => `${key}=${value}`)
+    .join(' ');
+  
+  return `${envPrefix} ./venv/bin/python -c "import sys; sys.path.append('${scriptPath}'); from process import ${functionName}, output_json; output_json(${functionName}('${filePath}'${args.length ? ', ' + pyArgs : ''}))" 2>&1`;
 }

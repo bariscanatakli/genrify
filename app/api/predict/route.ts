@@ -4,7 +4,7 @@ import { promisify } from 'util';
 import { writeFile } from 'fs/promises';
 import path from 'path';
 import os from 'os';
-import { extractJsonFromOutput } from '../../utils/json-helpers'; // Import the utility
+import { extractJsonFromOutput, createPythonJsonCommandWithEnv } from '../../utils/json-helpers'; // Import the updated utility
 
 const execAsync = promisify(exec);
 
@@ -30,17 +30,32 @@ export async function POST(request: NextRequest) {
     // Fix path format - replace backslashes with forward slashes
     const normalizedScriptPath = path.join(process.cwd(), 'app', 'api').replace(/\\/g, '/');
     const normalizedFilePath = filePath.replace(/\\/g, '/');
-      // Check if visualization data is requested
+    
+    // Check if visualization data is requested
     const includeVisualization = formData.get('include_visualization') === 'true';
     
+    // Check if GPU/CUDA should be used (default to true if available)
+    const useGpu = formData.get('use_gpu') !== 'false';
+    
+    // Environment variables for TensorFlow GPU control
+    const envVars: Record<string, string> = {
+      'PYTHONIOENCODING': 'utf-8',
+      'TF_CPP_MIN_LOG_LEVEL': '2' // Reduce TF verbosity
+    };
+    
+    // If GPU usage is explicitly disabled
+    if (!useGpu) {
+      envVars['CUDA_VISIBLE_DEVICES'] = '-1'; // Disable GPU
+    }
+    
     try {
-      // Python command now calls the function and then output_json
+      // Create command with environment variables using the new helper
       const command = includeVisualization 
-        ? `python -c "import sys; sys.path.append('${normalizedScriptPath}'); from process import predict_genre_with_visualization, output_json; result = predict_genre_with_visualization('${normalizedFilePath}'); output_json(result)"`
-        : `python -c "import sys; sys.path.append('${normalizedScriptPath}'); from process import predict_genre, output_json; result = predict_genre('${normalizedFilePath}'); output_json(result)"`;
-      // console.log("Executing command for prediction:", command); // For debugging
-        const { stdout, stderr } = await execAsync(command, {
-        env: { ...process.env, PYTHONIOENCODING: 'utf-8' }, // TF_CPP_MIN_LOG_LEVEL is set in process.py
+        ? `${Object.entries(envVars).map(([k,v]) => `${k}=${v}`).join(' ')} ./venv/bin/python -c "import sys; sys.path.append('${normalizedScriptPath}'); from process import predict_genre_with_visualization, output_json; result = predict_genre_with_visualization('${normalizedFilePath}'); output_json(result)"`
+        : `${Object.entries(envVars).map(([k,v]) => `${k}=${v}`).join(' ')} ./venv/bin/python -c "import sys; sys.path.append('${normalizedScriptPath}'); from process import predict_genre, output_json; result = predict_genre('${normalizedFilePath}'); output_json(result)"`;
+      
+      const { stdout, stderr } = await execAsync(command, {
+        env: { ...process.env }, // Pass through current environment
         maxBuffer: 1024 * 1024 * 50  // 50MB buffer for large outputs with visualization data
       });
       
@@ -50,7 +65,6 @@ export async function POST(request: NextRequest) {
       
       try {
         const result = extractJsonFromOutput(stdout); // Use the utility
-        // console.log("Successfully extracted JSON prediction result"); // For debugging
         return NextResponse.json(result);
       } catch (jsonError) {
         console.error("JSON extraction error (predict):", jsonError);

@@ -45,6 +45,7 @@ An AI-powered music genre classification and recommendation system built with Ne
 ### Backend & ML
 - **Python 3.11+** - Core ML processing
 - **TensorFlow/Keras** - Deep learning models
+- **CUDA/cuDNN** - GPU acceleration for TensorFlow
 - **Librosa** - Audio processing and feature extraction
 - **NumPy/Pandas** - Data manipulation
 - **Matplotlib** - Visualization generation
@@ -61,6 +62,7 @@ An AI-powered music genre classification and recommendation system built with Ne
 ### Prerequisites
 - Node.js 18+ and npm
 - Python 3.11+
+- CUDA Toolkit 11.2+ and cuDNN (optional, for GPU acceleration)
 - At least 4GB RAM (for ML models)
 
 ### Frontend Setup
@@ -77,12 +79,77 @@ npm run dev
 ```
 
 ### Python Dependencies Setup
-```bash
-# Install Python dependencies
-pip install tensorflow librosa numpy pandas matplotlib scikit-learn faiss-cpu
 
-# For GPU support (optional)
+#### Using Virtual Environment (Recommended)
+```bash
+# Create a Python virtual environment
+python -m venv venv
+
+# Activate the virtual environment
+# On Linux/Mac
+source venv/bin/activate
+# On Windows
+# venv\Scripts\activate
+
+# Install Python dependencies
+pip install -r requirements.txt
+
+# For GPU support (if CUDA is installed)
 pip install tensorflow-gpu faiss-gpu
+```
+
+### CUDA Setup for GPU Acceleration
+
+#### 1. Check GPU Compatibility
+First, verify your GPU is compatible with CUDA:
+```bash
+# For NVIDIA GPUs
+nvidia-smi
+```
+
+#### 2. Install CUDA Toolkit and cuDNN
+For TensorFlow 2.x:
+- Install [CUDA Toolkit 11.2+](https://developer.nvidia.com/cuda-toolkit-archive)
+- Install [cuDNN 8.1+](https://developer.nvidia.com/cudnn)
+
+#### 3. Verify CUDA Installation
+You can verify your CUDA installation:
+```bash
+# Check CUDA version
+nvcc --version
+
+# Check if TensorFlow can access the GPU
+python -c "import tensorflow as tf; print(tf.config.list_physical_devices('GPU'))"
+```
+
+#### 4. Install TensorFlow with GPU Support
+```bash
+# Inside your activated virtual environment
+pip install tensorflow
+```
+
+#### 5. Enable GPU Acceleration
+The application will automatically detect and use your GPU if available.
+
+#### 6. Troubleshooting
+If you encounter issues with GPU acceleration:
+- Ensure CUDA and cuDNN versions are compatible with your TensorFlow version
+- Check TensorFlow logs for any specific device errors
+- Try setting memory growth: `TF_FORCE_GPU_ALLOW_GROWTH=true`
+
+#### Quick setup with npm scripts
+```bash
+# Create venv and install dependencies
+npm run venv:setup
+
+# Run the app with venv activated
+npm run dev:venv
+```
+
+#### Manual Installation (Not Recommended)
+```bash
+# Install Python dependencies globally
+pip install tensorflow librosa numpy pandas matplotlib scikit-learn faiss-cpu
 ```
 
 ### Model Setup
@@ -137,6 +204,10 @@ Create a `.env.local` file:
 # Optional: Configure model paths
 MODEL_PATH=/path/to/models
 AUDIO_UPLOAD_LIMIT=52428800  # 50MB
+
+# GPU/CUDA Configuration
+TF_FORCE_GPU_ALLOW_GROWTH=true  # Prevent TensorFlow from allocating all GPU memory
+TF_GPU_THREAD_MODE=gpu_private  # Improve GPU thread management
 ```
 
 ### Model Configuration
@@ -216,6 +287,13 @@ jupyter notebook music_recommender_pipeline.ipynb
 - Install exact package versions from requirements
 - Use virtual environment to avoid conflicts
 
+**GPU/CUDA issues**
+- Verify CUDA and cuDNN are correctly installed and compatible with TensorFlow
+- Check GPU memory usage with `nvidia-smi`
+- Try disabling GPU with `CUDA_VISIBLE_DEVICES=-1`
+- Update GPU drivers to the latest version
+- Set `TF_FORCE_GPU_ALLOW_GROWTH=true` to prevent memory allocation issues
+
 ### Performance Optimization
 
 **For better inference speed:**
@@ -223,6 +301,7 @@ jupyter notebook music_recommender_pipeline.ipynb
 - Optimize model with TensorFlow Lite
 - Implement model quantization
 - Use FAISS GPU for large-scale search
+- Set proper GPU memory allocation with `tf.config.experimental.set_memory_growth`
 
 ## 🤝 Contributing
 
