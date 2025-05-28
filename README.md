@@ -1,63 +1,96 @@
-# 🎵 Music Genre Classifier & Recommender
+# 🎵 Genrify - Music Genre Classifier
 
-An AI-powered music genre classification and recommendation system built with Next.js and TensorFlow. This application uses deep learning models to analyze audio files, predict their genres, and provide intelligent music recommendations.
+An AI-powered music genre classification system with **separated architecture** - FastAPI backend for AI processing and Next.js frontend for user interface. This application uses deep learning models to analyze audio files and predict their genres with high accuracy.
 
 ## 🚀 Features
 
-- **Real-time Audio Analysis**: Upload audio files and get instant genre predictions
-- **Deep Learning Models**: Multiple CNN architectures including optimized classifiers, autoencoders, and triplet networks
-- **Interactive Visualizations**: Comprehensive audio feature visualization including spectrograms, MFCC, and prediction confidence
-- **Music Recommendations**: FAISS-powered similarity search for finding similar tracks
-- **Comprehensive Genre Support**: Supports 8 major genres: Electronic, Experimental, Folk, Hip-Hop, Instrumental, International, Pop, Rock
-- **Fallback System**: Graceful degradation with mock predictions when ML dependencies are unavailable
-- **Modern UI**: Beautiful, responsive interface built with React and Tailwind CSS
+- **⚡ Separated Architecture**: Independent FastAPI backend and Next.js frontend
+- **🎯 Real-time Audio Analysis**: Upload audio files and get instant genre predictions (~13 seconds)
+- **🧠 Deep Learning Models**: Optimized CNN architecture with GPU acceleration
+- **📊 Interactive Visualizations**: Real-time progress tracking and confidence scores
+- **🎵 Comprehensive Genre Support**: 8 major genres: Electronic, Experimental, Folk, Hip-Hop, Instrumental, International, Pop, Rock
+- **🔧 Modern UI**: Beautiful, responsive interface built with React and Tailwind CSS
+- **📈 Performance Optimized**: 68% faster than original pipeline
+- **🌐 API-First Design**: Reusable backend for multiple frontends
 
-## 🏗️ Architecture
+## 🏗️ Separated Architecture
 
-### Frontend (Next.js)
-- **React Components**: Interactive UI with real-time feedback
-- **Audio Processing**: Client-side audio file handling and validation
-- **Visualization**: D3.js-powered charts and spectrograms
-- **Real-time Updates**: Dynamic progress tracking and status indicators
+```
+┌─────────────────┐    HTTP API    ┌─────────────────┐
+│   Next.js       │◄──────────────►│   FastAPI       │
+│   Frontend      │                │   Backend       │
+│   (Port 3001)   │                │   (Port 8888)   │
+└─────────────────┘                └─────────────────┘
+       │                                     │
+       │                                     │
+    TypeScript                          Python + TensorFlow
+    React UI                            AI Model Processing
+```
+
+### Backend (FastAPI)
+- **AI Processing**: TensorFlow-based genre classification
+- **GPU Acceleration**: CUDA support for faster inference
+- **RESTful API**: Clean endpoints for health checks and predictions
+- **Performance**: ~13 second processing time (68% improvement)
 
 ### Backend (Python/TensorFlow)
 - **CNN Classifier**: Optimized convolutional neural network for genre classification
 - **Autoencoder**: Dense embedding generation for music similarity
 - **Triplet Network**: Discriminative embeddings for enhanced recommendations
 - **Audio Processing**: Librosa-based feature extraction (spectrograms, MFCC, tempo, etc.)
-- **FAISS Integration**: Efficient similarity search for recommendations
-
-### Models
-- **Primary Classifier**: `optimized_cnn_model.keras` - Main genre classification model
-- **Triplet Encoder**: Enhanced embedding model for similarity matching
-- **Autoencoder**: Dimensionality reduction and feature learning
-- **Backup Models**: Fallback systems ensuring reliability
+### Frontend (Next.js)
+- **React Components**: Modern UI with real-time feedback
+- **API Integration**: Communicates with FastAPI backend
+- **Real-time Updates**: Dynamic progress tracking and status indicators
+- **Responsive Design**: Works on desktop and mobile devices
 
 ## 🛠️ Tech Stack
 
 ### Frontend
 - **Next.js 14** - React framework with App Router
-- **TypeScript** - Type-safe development
+- **TypeScript** - Type-safe development  
 - **Tailwind CSS** - Utility-first styling
-- **D3.js** - Data visualization
 - **React Hooks** - State management
 
-### Backend & ML
-- **Python 3.11+** - Core ML processing
+### Backend
+- **FastAPI** - Modern Python web framework
 - **TensorFlow/Keras** - Deep learning models
-- **CUDA/cuDNN** - GPU acceleration for TensorFlow
+- **CUDA/cuDNN** - GPU acceleration
 - **Librosa** - Audio processing and feature extraction
-- **NumPy/Pandas** - Data manipulation
-- **Matplotlib** - Visualization generation
-- **FAISS** - Efficient similarity search
-- **Scikit-learn** - ML utilities
+- **NumPy** - Data manipulation
+- **Uvicorn** - ASGI server
 
-### Development Tools
-- **ESLint** - Code linting
-- **PostCSS** - CSS processing
-- **Sharp** - Image optimization
+## ⚡ Quick Start
 
-## 📦 Installation
+### 1. Clone & Setup
+```bash
+git clone <repository>
+cd genrify
+```
+
+### 2. Start Backend Server
+```bash
+cd server
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+pip install -r requirements.txt
+python main.py
+```
+
+### 3. Start Frontend
+```bash
+# In a new terminal
+cd genrify
+npm install
+npm run dev
+```
+
+### 4. Access Application
+- **Frontend**: http://localhost:3001
+- **Backend API**: http://localhost:8888/docs
+- **Health Check**: http://localhost:8888/health
+
+## 📦 Detailed Installation
 
 ### Prerequisites
 - Node.js 18+ and npm

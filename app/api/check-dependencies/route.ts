@@ -75,7 +75,7 @@ export async function GET() {
     
     const missingPackages: string[] = [];
     const missingCritical: string[] = [];
-    const missingLibraries: Record<string, boolean> = {};
+    const missingLibraries: Record<string, boolean | number> = {};
     
     // Try each package with the actual functionality test
     for (const pkg of [...requiredPackages, ...additionalTests]) {

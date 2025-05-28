@@ -1,568 +1,840 @@
-"use client";
+'use client';
 
-import { useState, useRef, useEffect } from "react";
-import { formatFileSize, isAudioFile } from "./utils/audio";
-import DependencyStatus from "./components/DependencyStatus";
-import ClassificationVisualization from "./components/ClassificationVisualization";
+import { useState, useEffect, useRef } from 'react';
+import ClassificationVisualization from './components/ClassificationVisualization';
+import GenreRadar from './components/GenreRadar';
+import MusicRecommendations from './components/MusicRecommendations';
+import AdvancedPrediction from './components/AdvancedPrediction';
+import AudioProcessingPipeline from './components/AudioProcessingPipeline';
+import BatchProcessing from './components/BatchProcessing';
+import ModelDashboard from './components/ModelDashboard';
+import EnsemblePrediction from './components/EnsemblePrediction';
 
-// Types
-type Genre = string;
+// API Configuration
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8888';
 
-type GenrePrediction = {
-  predicted_genre: Genre;
+// Interfaces
+interface GenrePrediction {
+  predicted_genre: string;
   confidence: number;
-  genre_probabilities: Record<Genre, number>;
-  using_mock?: boolean;
-  dependency_status?: any;
-};
+  genre_probabilities: Record<string, number>;
+  processing_time: number;
+  visualization_data?: {
+    spectrogram?: string;
+    mel_spectrogram?: string;
+    mfcc_features?: number[][];
+    chroma_features?: number[][];
+    spectral_features?: {
+      spectral_centroid: number[];
+      spectral_rolloff: number[];
+      zero_crossing_rate: number[];
+    };
+    tempo?: number;
+    model_predictions?: number[];
+  };
+}
+
+interface ServerHealth {
+  status: string;
+  gpu_available: boolean;
+  model_loaded: boolean;
+}
+
+// Tab navigation configuration
+const navigationTabs = [
+  { id: 'prediction', label: 'Prediction', icon: '🎯' },
+  { id: 'recommendations', label: 'Recommendations', icon: '💿' },
+  { id: 'advanced', label: 'Advanced', icon: '⚗️' },
+  { id: 'pipeline', label: 'Pipeline', icon: '⚙️' },
+  { id: 'spectogram', label: 'Spectogram', icon: '📊' }, // Yeni tab
+  { id: 'batch', label: 'Batch', icon: '📦' },
+  { id: 'dashboard', label: 'Dashboard', icon: '📊' },
+  { id: 'ensemble', label: 'Ensemble', icon: '🤖' }
+];
+
+// Architecture highlights data
+const architectureHighlights = [
+  { 
+    icon: '⚡', 
+    title: 'Performance', 
+    points: ['GPU Optimization', 'FastAPI Speed', 'Async Processing'], 
+    color: 'text-green-400' 
+  },
+  { 
+    icon: '🔧', 
+    title: 'Scalability', 
+    points: ['API-First Design', 'Modular Services', 'Cloud Ready'], 
+    color: 'text-blue-400' 
+  },
+  { 
+    icon: '🎨', 
+    title: 'Experience', 
+    points: ['Modern UI/UX', 'Real-time Updates', 'Responsive Design'], 
+    color: 'text-purple-400' 
+  }
+];
 
 export default function Home() {
   // State management
   const [file, setFile] = useState<File | null>(null);
-  const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
-  const [prediction, setPrediction] = useState<GenrePrediction | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState<GenrePrediction | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [modelsStatus, setModelsStatus] = useState<{loading: boolean, available: boolean, missing: string[]}>({
-    loading: true,
-    available: false,
-    missing: []
-  });
-  const [dependencyStatus, setDependencyStatus] = useState<{
-    checked: boolean, 
-    missing: string[], 
-    critical: string[],
-    modelsLoaded: boolean,
-    usingMock: boolean,
-    missingLibraries?: Record<string, boolean>,
-    functionality?: {
-      ml_ready: boolean,
-      search_ready: boolean,
-      audio_ready: boolean,
-      embeddings_available: boolean,
-      models_available: boolean,
-    }
-  }>({
-    checked: false,
-    missing: [],
-    critical: [],
-    modelsLoaded: false,
-    usingMock: true
-  });
+  const [useGpu, setUseGpu] = useState(true);
+  const [serverHealth, setServerHealth] = useState<ServerHealth | null>(null);
+  const [showVisualization, setShowVisualization] = useState(false);
+  const [useAdvancedPrediction, setUseAdvancedPrediction] = useState(false);
+  const [activeTab, setActiveTab] = useState<'prediction' | 'recommendations' | 'advanced' | 'pipeline' | 'batch' | 'dashboard' | 'ensemble' | 'spectogram'>('prediction');
+  const [navHovered, setNavHovered] = useState(false);
+  const [pipelineData, setPipelineData] = useState<any>(null);
   
-  // Visualization state
-  const [visualizationData, setVisualizationData] = useState<any>(null);
-  const [processingSteps, setProcessingSteps] = useState<any[]>([]);
-  
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  // Refs
+  const navigationRef = useRef<HTMLDivElement>(null);
 
-  // Available genres from the classifier model
-  const genres = [
-    "Rock",
-    "Electronic", 
-    "Experimental",
-    "Hip-Hop",
-    "Folk",
-    "Instrumental",
-    "Pop",
-    "International"
-  ];
-
-  // Check if models are available
+  // Effects
   useEffect(() => {
-    fetch('/api/check-models')
-      .then(res => res.json())
-      .then((data) => {
-        setModelsStatus({
-          loading: false,
-          available: data.available,
-          missing: data.missing || []
-        });
-      })
-      .catch(err => {
-        console.error('Error checking models:', err);
-        setModelsStatus({
-          loading: false,
-          available: false,
-          missing: ['Error checking models availability']
-        });
-      });
+    checkServerHealth();
+    // Sadece navigasyon bileşeni için bir temizleme işlemi yap
+    // Diğer hover efekt kodlarını kaldır çünkü React state kullanacağız
   }, []);
 
-  // Check Python dependencies
-  useEffect(() => {
-    fetch('/api/check-dependencies')
-      .then(res => res.json())
-      .then(data => {
-        setDependencyStatus({
-          checked: true,
-          missing: data.missingPackages || [],
-          critical: data.missingCritical || [],
-          modelsLoaded: data.modelsLoaded || false,
-          usingMock: data.usingMock || false,
-          missingLibraries: data.missingLibraries || {},
-          functionality: data.functionality || undefined
-        });
-      })
-      .catch(err => {
-        console.error('Error checking dependencies:', err);
-        setDependencyStatus({
-          checked: true,
-          missing: ['Error checking dependencies'],
-          critical: ['Error checking Python environment'],
-          modelsLoaded: false,
-          usingMock: true
-        });
-      });
-  }, []);
-
-  const classifyAudio = async (file: File) => {
-    setIsAnalyzing(true);
-    setError(null);
-    setVisualizationData(null);
-    
-    // Initialize processing steps
-    const steps = [
-      { step: 1, title: "Audio Loading", description: "Loading and preprocessing audio file", status: 'processing' as 'pending' | 'processing' | 'completed' | 'error' },
-      { step: 2, title: "Feature Extraction", description: "Extracting MFCC, spectral, and temporal features", status: 'pending' as 'pending' | 'processing' | 'completed' | 'error' },
-      { step: 3, title: "Spectrogram Generation", description: "Creating spectrograms for visualization", status: 'pending' as 'pending' | 'processing' | 'completed' | 'error' },
-      { step: 4, title: "Model Prediction", description: "Running genre classification model", status: 'pending' as 'pending' | 'processing' | 'completed' | 'error' },
-      { step: 5, title: "Results Processing", description: "Processing prediction results", status: 'pending' as 'pending' | 'processing' | 'completed' | 'error' }
-    ];
-    setProcessingSteps([...steps]);
-    
+  // API functions
+  const checkServerHealth = async () => {
     try {
-      const formData = new FormData();
-      formData.append('file', file);
+      const response = await fetch(`${API_BASE_URL}/health`);
+      if (response.ok) {
+        const health = await response.json();
+        setServerHealth(health);
+      } else {
+        setServerHealth({ status: 'unhealthy', gpu_available: false, model_loaded: false });
+      }
+    } catch {
+      setServerHealth({ status: 'offline', gpu_available: false, model_loaded: false });
+    }
+  };
+
+  const classifyMusic = async () => {
+    if (!file) return;
+
+    setLoading(true);
+    setError(null);
+    
+    // Sınıflandırma yaparken pipeline'ı görüntülemek için otomatik olarak pipeline tab'ına geç
+    setActiveTab('pipeline');
+
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('use_gpu', useGpu.toString());
+
+    if (useAdvancedPrediction) {
       formData.append('include_visualization', 'true');
-      
-      // Update step 1 to completed
-      steps[0].status = 'completed';
-      steps[1].status = 'processing';
-      setProcessingSteps([...steps]);
-      
-      const response = await fetch('/api/predict', {
+    }
+
+    try {
+      // Pipeline verilerini da al
+      const pipelineResponse = await fetch(`${API_BASE_URL}/audio/process`, {
         method: 'POST',
         body: formData,
       });
       
+      if (pipelineResponse.ok) {
+        const pipelineResult = await pipelineResponse.json();
+        setPipelineData(pipelineResult);
+      }
+
+      const endpoint = useAdvancedPrediction
+        ? `${API_BASE_URL}/predict/advanced`
+        : `${API_BASE_URL}/predict`;
+
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        body: formData,
+      });
+
       if (!response.ok) {
-        throw new Error(`Classification failed: ${response.statusText}`);
+        const errorData = await response.json();
+        throw new Error(errorData.detail || 'Prediction failed');
       }
-      
-      const data: GenrePrediction & { visualization_data?: any } = await response.json();
-      
-      // Update all steps to completed
-      steps.forEach(step => step.status = 'completed');
-      setProcessingSteps([...steps]);
-      
-      setPrediction(data);
-      
-      // Set visualization data if available
-      if (data.visualization_data) {
-        setVisualizationData(data.visualization_data);
-      }
-      
-    } catch (err) {
-      console.error('Error during classification:', err);
-      setError(err instanceof Error ? err.message : 'Failed to classify audio');
-      
-      // Mark current step as error
-      const currentStep = steps.findIndex(s => s.status === 'processing');
-      if (currentStep !== -1) {
-        steps[currentStep].status = 'error';
-        setProcessingSteps([...steps]);
-      }
-      
-      // Set mock data during development/errors
-      if (process.env.NODE_ENV === 'development') {
-        setPrediction({
-          predicted_genre: "Electronic",
-          confidence: 0.85,
-          genre_probabilities: {
-            "Electronic": 0.85,
-            "Experimental": 0.06,
-            "Hip-Hop": 0.04,
-            "Rock": 0.02,
-            "Pop": 0.01,
-            "Folk": 0.01,
-            "Instrumental": 0.005,
-            "International": 0.005
-          },
-          using_mock: true
-        });
+
+      const prediction = await response.json();
+      setResult(prediction);
+
+      // Auto-show visualization if we have visualization data
+      if (prediction.visualization_data) {
+        setShowVisualization(true);
         
-        // Set mock visualization data
-        setVisualizationData({
-          mfcc_features: Array.from({ length: 13 }, (_, i) => 
-            Array.from({ length: 100 }, () => Math.random() * 2 - 1)
-          ),
-          spectral_features: {
-            spectral_centroid: [1500.5],
-            spectral_rolloff: [3000.2],
-            zero_crossing_rate: [0.045]
-          },
-          tempo: 128.5,
-          model_predictions: Array.from({ length: 8 }, () => Math.random())
+        // İşlem bittikten sonra prediction tab'ına geri dön
+        setActiveTab('prediction');
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'An error occurred');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Event handlers
+  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const selectedFile = event.target.files?.[0];
+    if (selectedFile) {
+      setFile(selectedFile);
+      setResult(null);
+      setError(null);
+      setShowVisualization(false);
+    }
+  };
+
+  // Helper functions
+  const handleTabChange = (tabId: string) => {
+    setActiveTab(tabId as any);
+    
+    // Geliştirilmiş kaydırma davranışı
+    setTimeout(() => {
+      const contentArea = document.getElementById('tab-content');
+      if (contentArea) {
+        // Sayfa başına sabit bir offset (header yüksekliği) ekleyelim
+        const headerOffset = 100;
+        const elementPosition = contentArea.getBoundingClientRect().top;
+        const offsetPosition = elementPosition + window.pageYOffset - headerOffset;
+        
+        window.scrollTo({
+          top: offsetPosition,
+          behavior: 'smooth'
         });
       }
-    } finally {
-      setIsAnalyzing(false);
-    }
+    }, 100); // Yeni içerik yüklenmesi için kısa bir gecikme
   };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files.length > 0) {
-      const selectedFile = e.target.files[0];
-      if (isAudioFile(selectedFile)) {
-        setFile(selectedFile);
-        setPrediction(null);
-      } else {
-        setError("Please select an audio file (MP3, WAV, etc.)");
-      }
-    }
-  };
+  // UI Components
+  const renderBackground = () => (
+    <>
+      {/* Background particles */}
+      <div className="floating-particles fixed inset-0 w-full h-full pointer-events-none z-0" style={{ top: 0, left: 0 }}>
+        {Array.from({ length: 75 }, (_, i) => (
+          <div
+            key={i}
+            className="particle"
+            style={{
+              position: 'absolute',
+              left: `${Math.random() * 100}%`,
+              top: `${Math.random() * 100}%`,
+              animationDelay: `${Math.random() * 15}s`,
+              animationDuration: `${15 + Math.random() * 10}s`,
+              pointerEvents: 'none',
+            }}
+          />
+        ))}
+      </div>
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (file) {
-      await classifyAudio(file);
-    }
-  };
+      {/* Enhanced Animated background particles */}
+      <div className="absolute inset-0 overflow-hidden" style={{ pointerEvents: 'none' }}>
+        <div className="absolute -top-1/2 -left-1/2 w-full h-full bg-gradient-to-br from-purple-500/10 to-transparent rounded-full blur-3xl animate-spin" style={{ animationDuration: '20s', pointerEvents: 'none' }}></div>
+        <div className="absolute -bottom-1/2 -right-1/2 w-full h-full bg-gradient-to-tl from-blue-500/10 to-transparent rounded-full blur-3xl animate-spin" style={{ animationDuration: '25s', animationDirection: 'reverse', pointerEvents: 'none' }}></div>
+        <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-gradient-to-r from-pink-500/5 to-yellow-500/5 rounded-full blur-2xl animate-pulse" style={{ pointerEvents: 'none' }}></div>
+        <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-gradient-to-l from-green-500/5 to-blue-500/5 rounded-full blur-2xl animate-pulse" style={{ animationDelay: '2s', pointerEvents: 'none' }}></div>
+      </div>
+    </>
+  );
 
-  const clearFile = () => {
-    setFile(null);
-    setPrediction(null);
-    setError(null);
-    if (fileInputRef.current) {
-      fileInputRef.current.value = "";
-    }
-  };
-
-  // Sort genre probabilities by value for visualization
-  const sortedProbabilities = prediction
-    ? Object.entries(prediction.genre_probabilities)
-        .sort(([,a], [,b]) => b - a)
-    : [];
-
-  // Update dependency status when prediction is received
-  useEffect(() => {
-    if (prediction && prediction.dependency_status) {
-      setDependencyStatus(prev => ({
-        ...prev,
-        missingLibraries: prediction.dependency_status.libraries || {},
-        functionality: prediction.dependency_status.functionality || undefined
-      }));
-    }
-  }, [prediction]);
-
-  return (
-    <div className="min-h-screen px-4 py-8 bg-gradient-to-br from-slate-50 to-blue-50 dark:from-slate-900 dark:to-blue-900">
-      <main className="max-w-4xl mx-auto">
-        {/* Header */}
-        <div className="text-center mb-12">
-          <div className="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full mb-6">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-8 h-8 text-white">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M9 9l10.5-3m0 6.553v3.75a2.25 2.25 0 01-1.632 2.163l-1.32.377a1.803 1.803 0 11-.99-3.467l2.31-.66a2.25 2.25 0 001.632-2.163zm0 0V2.25L9 5.25v10.303m0 0v3.75a2.25 2.25 0 01-1.632 2.163l-1.32.377a1.803 1.803 0 01-.99-3.467l2.31-.66A2.25 2.25 0 009 15.553z" />
-            </svg>
-          </div>
-          <h1 className="text-4xl sm:text-5xl font-bold mb-4 bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
-            Music Genre Classifier
-          </h1>
-          <p className="text-lg text-slate-600 dark:text-slate-300 max-w-2xl mx-auto leading-relaxed">
-            Upload an audio file and discover its musical genre using advanced AI classification. 
-            Get detailed probability scores across {genres.length} different genres.
-          </p>
-          
-          {/* Status indicators */}
-          {modelsStatus.loading ? (
-            <div className="mt-4 flex items-center justify-center gap-2 text-blue-500 text-sm">
-              <div className="animate-spin h-4 w-4 border-2 border-blue-500 border-t-transparent rounded-full"></div>
-              Checking models availability...
-            </div>
-          ) : !dependencyStatus.checked ? (
-            null
-          ) : (
-            !modelsStatus.available && (
-              <div className="mt-4 text-amber-600 dark:text-amber-400 text-sm bg-amber-50 dark:bg-amber-900/20 px-4 py-2 rounded-lg inline-block">
-                ⚠️ Some models not available: {modelsStatus.missing.join(', ')}
-              </div>
-            )
-          )}
-          
-          <DependencyStatus status={dependencyStatus} />
-          
-          {prediction?.using_mock && (
-            <div className="mt-3 text-amber-600 dark:text-amber-400 text-sm bg-amber-50 dark:bg-amber-900/20 px-4 py-2 rounded-lg inline-block">
-              ⚠️ Using mock data for some functionality
-            </div>
-          )}
+  const renderHeader = () => (
+    <div className="text-center mb-12">
+      <div>
+        <h1
+          className="text-3xl md:text-5xl font-extrabold gradient-text-advanced mb-4 tracking-tight leading-tight md:leading-[1.1] pb-1"
+          style={{
+            lineHeight: '1.1',
+            paddingBottom: '0.25em',
+            textShadow: '0 2px 8px rgba(80,0,120,0.15)',
+            color: '#fff',
+          }}
+        >
+          🎵 Genrify
+        </h1>
+      </div>
+      
+      <div className="flex justify-center mb-4">
+        <div className="spectral-bars">
+          {[...Array(8)].map((_, i) => (
+            <div key={i} className="spectral-bar"></div>
+          ))}
         </div>
+      </div>
+      
+      <p className="text-2xl text-gray-200 mb-6 font-light tracking-wide">
+        AI-Powered Music Genre Classification
+      </p>
 
-        {/* Error Message */}
-        {error && (
-          <div className="bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 text-red-800 dark:text-red-200 px-6 py-4 rounded-xl mb-8">
-            <div className="flex items-center gap-2">
-              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
-              </svg>
-              <p className="font-medium">{error}</p>
-            </div>
+      {/* Server Status */}
+      <div className="flex justify-center mb-8">
+        <div className={`px-4 py-2 rounded-lg text-sm font-medium transition-all duration-300 ${
+          serverHealth?.status === 'healthy'
+            ? 'bg-green-500/20 text-green-300 border border-green-500/30'
+            : 'bg-red-500/20 text-red-300 border border-red-500/30'
+        }`}>
+          <div className="flex items-center space-x-2">
+            <div className={`w-2.5 h-2.5 rounded-full ${serverHealth?.status === 'healthy' ? 'bg-green-400' : 'bg-red-400'} animate-pulse`}></div>
+            <span>Backend: {serverHealth?.status === 'healthy' ? 'Online' : 'Offline'}</span>
+            {serverHealth?.status === 'healthy' && serverHealth?.gpu_available && <span className="text-xs opacity-80">(GPU Ready)</span>}
+            {serverHealth?.status === 'healthy' && serverHealth?.model_loaded && <span className="text-xs opacity-80">(Model Loaded)</span>}
           </div>
-        )}
+        </div>
+      </div>
 
-        {/* Upload Section */}
-        <div className="bg-white/80 dark:bg-slate-800/80 p-8 rounded-2xl backdrop-blur-sm shadow-xl border border-white/20 mb-8">
-          <form onSubmit={handleSubmit} className="space-y-6">
-            <div className="border-2 border-dashed border-slate-300 dark:border-slate-600 rounded-xl p-8 text-center hover:border-blue-400 dark:hover:border-blue-500 transition-colors">
-              {!file ? (
-                <div className="space-y-4">
-                  <div className="flex justify-center">
-                    <div className="w-16 h-16 bg-gradient-to-br from-blue-100 to-purple-100 dark:from-blue-900/50 dark:to-purple-900/50 rounded-full flex items-center justify-center">
-                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-8 h-8 text-blue-600 dark:text-blue-400">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 16.5V9.75m0 0l3 3m-3-3l-3 3M6.75 19.5a4.5 4.5 0 01-1.41-8.775 5.25 5.25 0 0110.233-2.33 3 3 0 013.758 3.848A3.752 3.752 0 0118 19.5H6.75z" />
-                      </svg>
-                    </div>
-                  </div>
-                  <div>
-                    <p className="text-lg font-medium text-slate-700 dark:text-slate-200 mb-2">
-                      Drop your audio file here
-                    </p>
-                    <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">
-                      Supports MP3, WAV, FLAC, and other audio formats
-                    </p>
-                  </div>
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    id="music-file"
-                    accept="audio/*"
-                    onChange={handleFileChange}
-                    className="hidden"
-                  />
-                  <label
-                    htmlFor="music-file"
-                    className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-blue-500 to-purple-600 text-white rounded-xl cursor-pointer hover:from-blue-600 hover:to-purple-700 transition-all duration-200 font-medium shadow-lg"
-                  >
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 16.5V9.75m0 0l3 3m-3-3l-3 3M6.75 19.5a4.5 4.5 0 01-1.41-8.775 5.25 5.25 0 0110.233-2.33 3 3 0 013.758 3.848A3.752 3.752 0 0118 19.5H6.75z" />
-                    </svg>
-                    Choose Audio File
-                  </label>
+      {/* Architecture Info */}
+      <div className="flex justify-center mb-8">
+        <div className="prism-glass dynamic-card enhanced-hover cyberpunk-grid rounded-2xl px-8 py-4 magic-hover">
+          <div className="flex flex-wrap justify-center items-center gap-x-6 gap-y-2 text-lg">
+            {[
+              { label: 'FastAPI Backend', color: 'text-blue-300' },
+              { label: 'Next.js Frontend', color: 'text-green-300' },
+              { label: 'TensorFlow Model', color: 'text-purple-300' }
+            ].map((tech, index, arr) => (
+              <>
+                <div key={tech.label} className={`${tech.color} font-bold flex items-center space-x-2`}>
+                  <div className="plasma-orb w-4 h-4"></div>
+                  <span>{tech.label}</span>
+                </div>
+                {index < arr.length - 1 && (
+                  <div className="w-2 h-2 bg-gradient-to-r from-purple-400 to-pink-500 rounded-full animate-pulse hidden md:block"></div>
+                )}
+              </>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
+  const renderNavigation = () => (
+    <>
+      {/* Masaüstü Navigasyon - Solda hover ile genişleyen */}
+      <div 
+        ref={navigationRef}
+        className="fixed left-0 top-1/2 transform -translate-y-1/2 z-50 hidden md:block"
+      >
+        <div 
+          className="prism-glass dynamic-card rounded-r-xl p-2 ml-0 shadow-xl transition-all duration-300 ease-in-out overflow-hidden hover:shadow-purple-500/20 hover:shadow-lg"
+          style={{ width: navHovered ? '180px' : '74px' }}
+          onMouseEnter={() => setNavHovered(true)}
+          onMouseLeave={() => setNavHovered(false)}
+        >
+          {navigationTabs.map((tab) => (
+            <button
+              key={tab.id}
+              onClick={() => handleTabChange(tab.id)}
+              className={`flex items-center w-full p-2 mb-2 text-sm font-semibold rounded-lg transition-all duration-200 ease-in-out focus:outline-none focus-visible:ring-2 focus-visible:ring-purple-400 focus-visible:ring-opacity-75 clickable ${
+                activeTab === tab.id
+                  ? 'bg-purple-600 text-white shadow-lg' 
+                  : 'text-gray-300 hover:bg-purple-500/40 hover:text-white hover:shadow-md'
+              }`}
+              role="tab"
+              aria-selected={activeTab === tab.id}
+              tabIndex={0}
+              title={tab.label}
+              aria-label={tab.label}
+            >
+              {/* İkon kısmı */}
+              <span className="text-2xl flex-shrink-0">
+                {tab.icon}
+              </span>
+              
+              {/* Metin kısmı - Hover durumuna göre görünürlüğü React state kullanarak kontrol ediyoruz */}
+              {navHovered && (
+                <span className="whitespace-nowrap text-sm ml-3 transition-all duration-300">
+                  {tab.label}
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
+        
+        {/* Yukarı çıkmak için ek buton */}
+        <div className="absolute -bottom-16 left-0 w-full flex justify-center">
+          <button
+            onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+            className="prism-glass p-2 rounded-full shadow-lg hover:bg-purple-500/20 transition-all duration-200 clickable"
+            title="Yukarı çık"
+            aria-label="Sayfanın başına git"
+          >
+            <span className="text-xl">⬆️</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Mobil Navigasyon - Üstte tam genişlikte */}
+      <div className="md:hidden sticky top-0 z-50 mb-4">
+        <div className="prism-glass dynamic-card p-2 rounded-xl shadow-xl">
+          <div className="flex overflow-x-auto snap-x scrollbar-hide space-x-2">
+            {navigationTabs.map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => handleTabChange(tab.id)}
+                className={`flex-shrink-0 snap-start flex flex-col items-center justify-center p-2 min-w-[64px] text-sm font-semibold rounded-lg transition-all duration-200 ease-in-out focus:outline-none focus-visible:ring-2 focus-visible:ring-purple-400 focus-visible:ring-opacity-75 clickable ${
+                  activeTab === tab.id
+                    ? 'bg-purple-600 text-white shadow-lg' 
+                    : 'text-gray-300 hover:bg-purple-500/40 hover:text-white hover:shadow-md'
+                }`}
+                role="tab"
+                aria-selected={activeTab === tab.id}
+                tabIndex={0}
+                aria-label={tab.label}
+              >
+                <span className="text-xl mb-1">{tab.icon}</span>
+                <span className="text-xs line-clamp-1">{tab.label}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+    </>
+  );
+
+  const renderFileUpload = () => (
+    <div className="prism-glass dynamic-card enhanced-hover bio-luminescent temporal-distortion rounded-2xl p-8 mb-8 magic-hover">
+      <div className="bg-gradient-to-r from-purple-500/10 to-pink-500/10 rounded-xl p-6">
+        <h2 className="text-2xl font-bold gradient-text-advanced mb-6 text-center tracking-wide">
+          🎵 Upload Your Music
+        </h2>
+
+        <div className="space-y-6">
+          {/* File upload area */}
+          <div className="relative">
+            <input
+              type="file"
+              accept="audio/*"
+              onChange={handleFileChange}
+              className="hidden"
+              id="file-upload"
+            />
+            <label
+              htmlFor="file-upload"
+              className="clickable group block w-full p-8 border-2 border-dashed border-purple-400/50 rounded-xl bg-gradient-to-br from-purple-500/5 to-pink-500/5 hover:from-purple-500/15 hover:to-pink-500/15 hover:border-purple-400/70 transition-all duration-300 ease-in-out cursor-pointer text-center magic-hover ripple transform hover:scale-[1.02]"
+              style={{ position: 'relative', zIndex: 20, pointerEvents: 'auto' }}
+            >
+              <div className="space-y-4 transition-transform duration-300 ease-in-out group-hover:scale-105">
+                <div className="music-visualizer mx-auto w-fit">
+                  {[...Array(5)].map((_, i) => (
+                    <div key={i} className="vis-bar"></div>
+                  ))}
+                </div>
+                <div className="text-2xl font-bold text-purple-300 group-hover:text-purple-200 transition-colors duration-300">
+                  {file ? `🎵 ${file.name}` : '📁 Choose Audio File'}
+                </div>
+                <div className="text-gray-400 group-hover:text-gray-300 transition-colors duration-300">
+                  Supported formats: MP3, WAV, FLAC, M4A
+                </div>
+              </div>
+            </label>
+          </div>
+
+          {/* Options */}
+          <div className="flex flex-wrap gap-4 justify-center">
+            <label className="clickable flex items-center space-x-3 glass-card rounded-lg px-4 py-3 cursor-pointer magic-hover hover:bg-white/10 transition-colors duration-200" style={{ position: 'relative', zIndex: 20, pointerEvents: 'auto' }}>
+              <input
+                type="checkbox"
+                checked={useGpu}
+                onChange={(e) => setUseGpu(e.target.checked)}
+                className="h-5 w-5 rounded accent-purple-500 bg-transparent border-purple-400/50 focus:ring-2 focus:ring-purple-500 focus:ring-offset-0 focus:ring-offset-transparent"
+              />
+              <span className="text-sm font-medium">🚀 Use GPU Acceleration</span>
+            </label>
+
+            <label className="clickable flex items-center space-x-3 glass-card rounded-lg px-4 py-3 cursor-pointer magic-hover hover:bg-white/10 transition-colors duration-200" style={{ position: 'relative', zIndex: 20, pointerEvents: 'auto' }}>
+              <input
+                type="checkbox"
+                checked={useAdvancedPrediction}
+                onChange={(e) => setUseAdvancedPrediction(e.target.checked)}
+                className="h-5 w-5 rounded accent-purple-500 bg-transparent border-purple-400/50 focus:ring-2 focus:ring-purple-500 focus:ring-offset-0 focus:ring-offset-transparent"
+              />
+              <span className="text-sm font-medium">🔬 Advanced Analysis</span>
+            </label>
+          </div>
+
+          {/* Predict Button */}
+          <div className="text-center pt-2">
+            <button
+              onClick={classifyMusic}
+              disabled={!file || loading}
+              className="clickable morph-button px-10 py-4 text-lg font-bold disabled:opacity-50 disabled:cursor-not-allowed relative overflow-hidden ripple hover:brightness-110 transition-all duration-200 transform active:scale-95"
+              style={{ position: 'relative', zIndex: 20, pointerEvents: 'auto' }}
+            >
+              {loading ? (
+                <div className="flex items-center justify-center space-x-3">
+                  <div className="spinner-premium"></div>
+                  <span>🎵 Analyzing Music...</span>
                 </div>
               ) : (
-                <div className="flex items-center justify-between bg-slate-50 dark:bg-slate-700 rounded-lg p-4">
-                  <div className="flex items-center gap-4">
-                    <div className="w-12 h-12 bg-gradient-to-br from-green-100 to-blue-100 dark:from-green-900/50 dark:to-blue-900/50 rounded-lg flex items-center justify-center">
-                      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6 text-green-600 dark:text-green-400">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M9 9l10.5-3m0 6.553v3.75a2.25 2.25 0 01-1.632 2.163l-1.32.377a1.803 1.803 0 11-.99-3.467l2.31-.66a2.25 2.25 0 001.632-2.163zm0 0V2.25L9 5.25v10.303m0 0v3.75a2.25 2.25 0 01-1.632 2.163l-1.32.377a1.803 1.803 0 01-.99-3.467l2.31-.66A2.25 2.25 0 009 15.553z" />
-                      </svg>
-                    </div>
-                    <div className="text-left">
-                      <p className="font-semibold text-slate-800 dark:text-slate-200 truncate max-w-xs">{file.name}</p>
-                      <p className="text-sm text-slate-500 dark:text-slate-400">
-                        {formatFileSize(file.size)}
-                      </p>
-                    </div>
-                  </div>
-                  <button 
-                    type="button"
-                    onClick={clearFile}
-                    className="text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 p-2 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
-                  >
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                  </button>
-                </div>
+                '🚀 Classify Genre'
               )}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
+  const renderErrorMessage = () => {
+    if (!error) return null;
+    
+    return (
+      <div className="glass-card-premium rounded-2xl p-6 mb-8 bg-gradient-to-r from-red-500/20 to-pink-500/10 border border-red-500/40 shadow-xl">
+        <div className="flex items-center space-x-4">
+          <div className="text-red-400 text-3xl animate-pulse">⚠️</div>
+          <div>
+            <h3 className="text-xl font-bold text-red-300 mb-1">Error Occurred</h3>
+            <p className="text-red-300/90">{error}</p>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderPredictionResults = () => {
+    if (!result) return null;
+    
+    return (
+      <div className="prism-glass enhanced-hover particle-physics rounded-2xl p-6 sm:p-8 stagger-animation shadow-2xl">
+        {/* Quick Results */}
+        <div className="text-center mb-10">
+          <div className="text-7xl mb-4 inline-block animate-bounce" style={{ animationDuration: '1.5s' }}>🎵</div>
+          <h2 className="text-4xl font-bold gradient-text-advanced mb-3">
+            Genre Identified!
+          </h2>
+          <div className="text-6xl font-black gradient-text-advanced mb-5 neon-glow tracking-wider">
+            {result.predicted_genre.toUpperCase()}
+          </div>
+          <div className="flex justify-center items-center space-x-3 text-lg">
+            <span className="text-gray-300">Confidence:</span>
+            <div className="flex items-center space-x-2">
+              <div className="w-36 h-4 bg-gray-700/80 rounded-full overflow-hidden shadow-inner">
+                <div
+                  className="h-full bg-gradient-to-r from-green-400 via-cyan-400 to-blue-500 rounded-full transition-all duration-1000 ease-out"
+                  style={{ width: `${result.confidence * 100}%` }}
+                ></div>
+              </div>
+              <span className="text-green-300 font-bold text-xl">{(result.confidence * 100).toFixed(1)}%</span>
             </div>
-            
-            <div className="flex justify-center">
-              <button
-                type="submit"
-                disabled={!file || isAnalyzing}
-                className={`px-8 py-3 rounded-xl font-semibold transition-all duration-200 ${
-                  !file || isAnalyzing
-                    ? "bg-slate-200 dark:bg-slate-700 cursor-not-allowed text-slate-400 dark:text-slate-500"
-                    : "bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white shadow-lg hover:shadow-xl transform hover:scale-105"
-                }`}
-              >
-                {isAnalyzing ? (
-                  <span className="flex items-center gap-3">
-                    <div className="animate-spin h-5 w-5 border-2 border-white border-t-transparent rounded-full"></div>
-                    Analyzing Audio...
-                  </span>
-                ) : (
-                  <span className="flex items-center gap-2">
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 00-2.456 2.456zM16.894 20.567L16.5 21.75l-.394-1.183a2.25 2.25 0 00-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 001.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 001.423 1.423l1.183.394-1.183.394a2.25 2.25 0 00-1.423 1.423z" />
-                    </svg>
-                    Classify Genre
-                  </span>
-                )}
-              </button>
-            </div>
-          </form>
+          </div>
+          <p className="text-gray-400 mt-3 text-sm">
+            Processing time: {result.processing_time.toFixed(2)}s
+          </p>
         </div>
 
-        {/* Results Section */}
-        {prediction && (
-          <div className="bg-white/80 dark:bg-slate-800/80 p-8 rounded-2xl backdrop-blur-sm shadow-xl border border-white/20 mb-8">
-            <div className="text-center mb-8">
-              <div className="inline-flex items-center justify-center w-20 h-20 bg-gradient-to-br from-green-500 to-emerald-600 rounded-full mb-4">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-10 h-10 text-white">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-              </div>
-              <h2 className="text-3xl font-bold mb-2 text-slate-800 dark:text-slate-100">Classification Complete</h2>
-              <div className="space-y-2">
-                <p className="text-xl text-slate-600 dark:text-slate-300">
-                  Detected Genre: <span className="font-bold text-blue-600 dark:text-blue-400">{prediction.predicted_genre}</span>
-                </p>
-                <div className="inline-flex items-center gap-2 bg-blue-50 dark:bg-blue-900/30 px-4 py-2 rounded-full">
-                  <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
-                  <span className="text-sm font-medium text-blue-700 dark:text-blue-300">
-                    {Math.round(prediction.confidence * 100)}% confidence
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            {/* Genre Probabilities Visualization */}
-            <div className="space-y-4">
-              <h3 className="text-lg font-semibold text-slate-800 dark:text-slate-200 mb-4 flex items-center gap-2">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" />
-                </svg>
-                Genre Probability Distribution
-              </h3>
-              <div className="space-y-3">
-                {sortedProbabilities.map(([genre, probability], index) => (
-                  <div key={genre} className="group">
-                    <div className="flex items-center justify-between mb-1">
-                      <span className={`text-sm font-medium ${
-                        index === 0 ? 'text-blue-600 dark:text-blue-400' : 'text-slate-600 dark:text-slate-300'
-                      }`}>
-                        {genre}
-                      </span>
-                      <span className={`text-sm font-bold ${
-                        index === 0 ? 'text-blue-600 dark:text-blue-400' : 'text-slate-500 dark:text-slate-400'
-                      }`}>
-                        {(probability * 100).toFixed(1)}%
-                      </span>
+        {/* Genre Probabilities and Radar */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
+          <div className="space-y-4">
+            <h3 className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-pink-400 mb-5">
+              📊 Genre Probabilities
+            </h3>
+            <div className="space-y-3.5">
+              {Object.entries(result.genre_probabilities)
+                .sort(([, a], [, b]) => b - a)
+                .slice(0, 7) // Show top 7 for cleaner UI
+                .map(([genre, probability], index) => (
+                  <div key={genre} className="stagger-animation" style={{ animationDelay: `${index * 0.08}s` }}>
+                    <div className="flex justify-between items-center mb-1.5">
+                      <span className="text-base font-medium text-gray-200 capitalize">{genre}</span>
+                      <span className="text-base font-bold text-purple-300">{(probability * 100).toFixed(1)}%</span>
                     </div>
-                    <div className="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-3 overflow-hidden">
-                      <div 
-                        className={`h-3 rounded-full transition-all duration-1000 ease-out ${
-                          index === 0 
-                            ? 'bg-gradient-to-r from-blue-500 to-blue-600' 
-                            : 'bg-gradient-to-r from-slate-400 to-slate-500'
-                        }`}
-                        style={{ 
-                          width: `${Math.max(2, probability * 100)}%`,
-                          transitionDelay: `${index * 100}ms`
+                    <div className="bg-gray-700/60 rounded-full h-3.5 overflow-hidden shadow-inner">
+                      <div
+                        className="h-full bg-gradient-to-r from-purple-600 via-pink-500 to-red-500 rounded-full transition-all duration-1000 ease-out"
+                        style={{
+                          width: `${probability * 100}%`,
+                          animationDelay: `${index * 0.15}s` // Stagger bar animation
                         }}
                       ></div>
                     </div>
                   </div>
                 ))}
-              </div>
             </div>
           </div>
-        )}
 
-        {/* Visualization Section */}
-        {(prediction || isAnalyzing || processingSteps.length > 0) && (
-          <div className="bg-white/80 dark:bg-slate-800/80 p-8 rounded-2xl backdrop-blur-sm shadow-xl border border-white/20 mb-8">
-            <h2 className="text-2xl font-bold mb-6 text-slate-800 dark:text-slate-100 flex items-center gap-3">
-              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-7 h-7 text-purple-500">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 3v11.25A2.25 2.25 0 006 16.5h2.25M3.75 3h-1.5m1.5 0h16.5m0 0h1.5m-1.5 0v11.25A2.25 2.25 0 0118 16.5h-2.25m-7.5 0h7.5m-7.5 0l-1 3m8.5-3l1 3m0 0l-1-3m1 3l-1-3m-16.5-3h16.5" />
-              </svg>
-              Classification Analysis
-            </h2>
-            <ClassificationVisualization
-              isProcessing={isAnalyzing}
-              visualizationData={visualizationData}
-              steps={processingSteps}
-              genrePredictions={prediction?.genre_probabilities}
-            />
-          </div>
-        )}
-
-        {/* Info Section */}
-        <div className="bg-white/80 dark:bg-slate-800/80 p-8 rounded-2xl backdrop-blur-sm shadow-xl border border-white/20">
-          <h2 className="text-2xl font-bold mb-6 text-slate-800 dark:text-slate-100 flex items-center gap-3">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-7 h-7 text-blue-500">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z" />
-            </svg>
-            How It Works
-          </h2>
-          <div className="grid md:grid-cols-2 gap-6">
-            <div className="space-y-4">
-              <div className="flex gap-4">
-                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center flex-shrink-0">
-                  <span className="text-white font-bold">1</span>
-                </div>
-                <div>
-                  <h3 className="font-semibold text-slate-800 dark:text-slate-200 mb-1">Audio Processing</h3>
-                  <p className="text-sm text-slate-600 dark:text-slate-400">Upload your audio file in any common format (MP3, WAV, FLAC)</p>
-                </div>
-              </div>
-              <div className="flex gap-4">
-                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-purple-500 to-purple-600 flex items-center justify-center flex-shrink-0">
-                  <span className="text-white font-bold">2</span>
-                </div>
-                <div>
-                  <h3 className="font-semibold text-slate-800 dark:text-slate-200 mb-1">Feature Extraction</h3>
-                  <p className="text-sm text-slate-600 dark:text-slate-400">Convert audio to spectrogram and extract key musical features</p>
-                </div>
-              </div>
+          {/* Radar Chart */}
+          <div className="flex justify-center items-center pt-4 lg:pt-0">
+            <div className="glass-card rounded-2xl p-4 sm:p-6 w-full max-w-md shadow-lg">
+              <GenreRadar genreProbabilities={result.genre_probabilities} />
             </div>
-            <div className="space-y-4">
-              <div className="flex gap-4">
-                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-green-500 to-green-600 flex items-center justify-center flex-shrink-0">
-                  <span className="text-white font-bold">3</span>
-                </div>
-                <div>
-                  <h3 className="font-semibold text-slate-800 dark:text-slate-200 mb-1">AI Classification</h3>
-                  <p className="text-sm text-slate-600 dark:text-slate-400">Deep learning model analyzes patterns to predict genre</p>
-                </div>
-              </div>
-              <div className="flex gap-4">
-                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-orange-500 to-orange-600 flex items-center justify-center flex-shrink-0">
-                  <span className="text-white font-bold">4</span>
-                </div>
-                <div>
-                  <h3 className="font-semibold text-slate-800 dark:text-slate-200 mb-1">Results</h3>
-                  <p className="text-sm text-slate-600 dark:text-slate-400">Get detailed probabilities across {genres.length} different genres</p>
+          </div>
+        </div>
+
+        {/* Architecture Benefits */}
+        <div className="glass-card rounded-2xl p-6 bg-gradient-to-r from-blue-500/10 to-purple-500/10 mt-10 shadow-lg">
+          <h3 className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-blue-300 via-purple-300 to-pink-300 mb-6 text-center">
+            🏗️ Architecture Highlights
+          </h3>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {architectureHighlights.map((benefit, idx) => (
+              <div key={idx} className="text-center space-y-3 stagger-animation p-3 rounded-lg hover:bg-white/5 transition-colors" style={{ animationDelay: `${idx * 0.1}s` }}>
+                <div className={`text-5xl ${benefit.color}`}>{benefit.icon}</div>
+                <h4 className={`text-xl font-bold ${benefit.color}`}>{benefit.title}</h4>
+                <div className="space-y-1 text-sm text-gray-300">
+                  {benefit.points.map(point => <div key={point}>✅ {point}</div>)}
                 </div>
               </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderTabContent = () => (
+    <div 
+      id="tab-content" 
+      className="min-h-[400px] scroll-mt-24"
+    >
+      {activeTab === 'prediction' && (
+        <div className="space-y-8">
+          {!result ? (
+            <div className="text-center p-8">
+              <h2 className="text-2xl font-bold mb-4 text-white">🎯 Genre Prediction</h2>
+              <p className="text-gray-300">Upload an audio file and click "Classify Genre" to get started.</p>
+            </div>
+          ) : renderPredictionResults()}
+        </div>
+      )}
+
+      {activeTab === 'advanced' && result && (
+        <div className="prism-glass enhanced-hover quantum-entangled rounded-2xl p-6 shadow-2xl">
+          <h2 className="text-2xl font-bold mb-4 text-white">🔬 Advanced AI Analysis</h2>
+          <AdvancedPrediction
+            genreProbabilities={result.genre_probabilities}
+            confidence={result.confidence}
+          />
+        </div>
+      )}
+
+      {activeTab === 'pipeline' && (
+        <div className="prism-glass enhanced-hover bio-luminescent rounded-2xl p-6 shadow-2xl">
+          <h2 className="text-2xl font-bold mb-4 text-white">⚙️ Audio Processing Pipeline</h2>
+          
+          {/* Seçili olan işlem modları */}
+          <div className="mb-4 flex flex-wrap gap-2 justify-center">
+            <div className={`px-3 py-1 rounded text-sm ${useGpu ? 'bg-green-500/20 text-green-300' : 'bg-gray-500/20 text-gray-300'}`}>
+              {useGpu ? '🚀 GPU Accelerated' : '🖥️ CPU Mode'}
+            </div>
+            <div className={`px-3 py-1 rounded text-sm ${useAdvancedPrediction ? 'bg-purple-500/20 text-purple-300' : 'bg-gray-500/20 text-gray-300'}`}>
+              {useAdvancedPrediction ? '🔬 Advanced Analysis' : '📊 Basic Analysis'}
             </div>
           </div>
           
-          <div className="mt-8 p-4 bg-slate-50 dark:bg-slate-700/50 rounded-xl">
-            <h4 className="font-semibold text-slate-800 dark:text-slate-200 mb-2">Supported Genres</h4>
-            <div className="flex flex-wrap gap-2">
-              {genres.map((genre) => (
-                <span 
-                  key={genre}
-                  className="px-3 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded-full text-sm font-medium"
-                >
-                  {genre}
-                </span>
-              ))}
+          {!file ? (
+            <div className="bg-gray-800/40 rounded-xl p-8 text-center">
+              <p className="text-gray-300">Upload an audio file to see the processing pipeline in action.</p>
             </div>
-          </div>
+          ) : (
+            <AudioProcessingPipeline
+              isProcessing={loading}
+              audioFile={file}
+              useGpu={useGpu}
+              advancedAnalysis={useAdvancedPrediction}
+              onProcessingComplete={(result) => {
+                console.log('Processing complete:', result);
+                if (result && result.success === false) {
+                  // Show error message if pipeline failed
+                  setError(result.error || "Pipeline processing failed");
+                }
+                setPipelineData(result);
+              }}
+            />
+          )}
         </div>
-      </main>
+      )}
 
-      <footer className="mt-16 text-center text-slate-500 dark:text-slate-400">
-        <div className="max-w-2xl mx-auto pb-8">
-          <p className="text-sm">
-            Powered by advanced deep learning and convolutional neural networks for accurate music genre classification
+      {activeTab === 'recommendations' && file && (
+        <div className="prism-glass enhanced-hover temporal-distortion rounded-2xl p-6 shadow-2xl">
+          <h2 className="text-2xl font-bold mb-4 text-white">💿 Music Recommendations</h2>
+          <MusicRecommendations
+            audioFile={file}
+            isVisible={true}
+          />
+        </div>
+      )}
+
+      {activeTab === 'batch' && (
+        <div className="prism-glass enhanced-hover cyberpunk-grid rounded-2xl p-6 shadow-2xl">
+          <h2 className="text-2xl font-bold mb-4 text-white">📦 Batch Processing</h2>
+          <BatchProcessing apiUrl={API_BASE_URL} />
+        </div>
+      )}
+
+      {activeTab === 'dashboard' && (
+        <div className="prism-glass enhanced-hover particle-physics rounded-2xl p-6 shadow-2xl">
+          <h2 className="text-2xl font-bold mb-4 text-white">📊 Model Performance Dashboard</h2>
+          <ModelDashboard apiUrl={API_BASE_URL} />
+        </div>
+      )}
+
+      {activeTab === 'ensemble' && (
+        <div className="prism-glass enhanced-hover hyperspace-tunnel rounded-2xl p-6 shadow-2xl">
+          <h2 className="text-2xl font-bold mb-4 text-white">🤖 Ensemble Prediction</h2>
+          <EnsemblePrediction audioFile={file} apiUrl={API_BASE_URL} />
+        </div>
+      )}
+      
+      {/* Seçili tab için içerik yoksa veya gerekli dosya yüklenmemişse bilgi mesajı */}
+      {((activeTab === 'recommendations' && !file) || 
+        (activeTab === 'advanced' && !result)) && (
+        <div className="prism-glass rounded-2xl p-8 text-center">
+          <h3 className="text-xl font-bold mb-4 text-white">
+            {activeTab === 'recommendations' ? '💿 Music Recommendations' : '🔬 Advanced Analysis'}
+          </h3>
+          <p className="text-gray-300">
+            {activeTab === 'recommendations' 
+              ? 'Please upload an audio file first to get music recommendations.' 
+              : 'Run a genre prediction first to see advanced analysis.'}
           </p>
         </div>
-      </footer>
+      )}
+
+      {/* Yeni spectogram tab'i */}
+      {activeTab === 'spectogram' && (
+        <div className="prism-glass enhanced-hover quantum-entangled rounded-2xl p-6 shadow-2xl">
+          <h2 className="text-2xl font-bold mb-4 text-white">📊 Spectogram Analysis</h2>
+          
+          {!result?.visualization_data ? (
+            <div className="bg-gray-800/40 rounded-xl p-8 text-center">
+              <p className="text-gray-300">Run a prediction with Advanced Analysis enabled to see spectrograms.</p>
+            </div>
+          ) : (
+            <div className="space-y-8">
+              <div>
+                <h3 className="text-xl font-semibold mb-3 text-white">Spectrogram</h3>
+                {result.visualization_data.spectrogram ? (
+                  <img 
+                    src={result.visualization_data.spectrogram} 
+                    alt="Spectrogram" 
+                    className="w-full rounded-lg shadow-lg"
+                  />
+                ) : (
+                  <p className="text-gray-300">Spectrogram data not available</p>
+                )}
+              </div>
+              
+              <div>
+                <h3 className="text-xl font-semibold mb-3 text-white">Mel Spectrogram</h3>
+                {result.visualization_data.mel_spectrogram ? (
+                  <img 
+                    src={result.visualization_data.mel_spectrogram} 
+                    alt="Mel Spectrogram" 
+                    className="w-full rounded-lg shadow-lg"
+                  />
+                ) : (
+                  <p className="text-gray-300">Mel spectrogram data not available</p>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+
+  const renderVisualization = () => {
+    if (!showVisualization || !result?.visualization_data) return null;
+    
+    return (
+      <div className="glass-card-premium rounded-2xl p-4 sm:p-6 mt-8 shadow-xl">
+        <ClassificationVisualization
+          visualizationData={result.visualization_data}
+          isVisible={showVisualization}
+        />
+      </div>
+    );
+  };
+
+  const renderFooter = () => (
+    <div className="prism-glass dynamic-card rounded-2xl p-6 max-w-2xl mx-auto mt-12">
+      <div className="text-center space-y-4">
+        <div className="flex justify-center">
+          <div className="music-visualizer">
+            {[...Array(5)].map((_, i) => (
+              <div key={i} className="vis-bar"></div>
+            ))}
+          </div>
+        </div>
+        <h3 className="text-xl font-bold gradient-text-advanced">
+          🎵 Genrify - Advanced Music Classification
+        </h3>
+        <p className="text-sm text-gray-400">
+          Built with ❤️ using FastAPI, Next.js, TensorFlow, and Modern Web Technologies
+        </p>
+        <div className="flex justify-center space-x-4 text-sm text-gray-500">
+          <span>🚀 High Performance</span>
+          <span>•</span>
+          <span>🎯 Accurate Predictions</span>
+          <span>•</span>
+          <span>🎨 Beautiful UI</span>
+        </div>
+      </div>
+    </div>
+  );
+
+  const renderFloatingButtons = () => (
+    <>
+      <button
+        className="clickable fab-enhanced"
+        style={{ bottom: '20px', right: '20px', position: 'fixed', zIndex: 50, pointerEvents: 'auto' }}
+        onClick={() => document.getElementById('file-upload')?.click()}
+        title="Quick Upload"
+      >
+        📁
+      </button>
+
+      <button
+        className="clickable fab-enhanced"
+        style={{ bottom: '90px', right: '20px', position: 'fixed', zIndex: 50, pointerEvents: 'auto' }}
+        onClick={checkServerHealth}
+        title="Refresh Status"
+      >
+        🔄
+      </button>
+
+      <button
+        className="clickable fab-enhanced"
+        style={{ bottom: '160px', right: '20px', position: 'fixed', zIndex: 50, pointerEvents: 'auto' }}
+        onClick={() => setActiveTab('dashboard')}
+        title="Dashboard"
+      >
+        📊
+      </button>
+    </>
+  );
+
+  // Main Render
+  return (
+    <div className="min-h-screen morphing-bg aurora-bg neural-network cosmic-dust hyperspace-tunnel">
+      {renderBackground()}
+
+      <div className="relative z-10 container mx-auto px-4 py-8">
+        {renderHeader()}
+
+        {/* Mobil ve Masaüstü Navigasyon */}
+        {renderNavigation()}
+
+        {/* Tüm içerik için ortalanmış kapsayıcı */}
+        <div className="flex justify-center">
+          {/* Sol navigasyonla aynı genişlikte boş alan - sadece masaüstü görünümünde */}
+          <div className="w-20 flex-shrink-0 hidden md:block"></div>
+          
+          {/* Ana içerik - tamamen ortalanmış */}
+          <div className="max-w-3xl flex-grow">
+            {renderFileUpload()}
+            {renderErrorMessage()}
+            <div id="main-content-area" className="scroll-mt-8">
+              {renderTabContent()}
+              {renderVisualization()}
+            </div>
+          </div>
+          
+          {/* Sağ tarafta da dengelemek için eşit boşluk - sadece masaüstü görünümünde */}
+          <div className="w-20 flex-shrink-0 hidden md:block"></div>
+        </div>
+
+        {renderFooter()}
+        {renderFloatingButtons()}
+      </div>
     </div>
   );
 }

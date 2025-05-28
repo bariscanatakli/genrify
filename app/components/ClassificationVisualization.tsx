@@ -27,16 +27,43 @@ interface VisualizationData {
 }
 
 interface ClassificationVisualizationProps {
-  isProcessing: boolean;
   visualizationData: VisualizationData | null;
-  steps: ClassificationStep[];
+  isVisible?: boolean;
+  isProcessing?: boolean;
+  steps?: ClassificationStep[];
   genrePredictions?: Record<string, number>;
 }
 
 const ClassificationVisualization: React.FC<ClassificationVisualizationProps> = ({
-  isProcessing,
   visualizationData,
-  steps,
+  isVisible = true,
+  isProcessing = false,
+  steps = [
+    { 
+      step: 1, 
+      title: 'Audio Loading', 
+      description: 'Reading audio file and converting to appropriate format', 
+      status: 'completed'
+    },
+    { 
+      step: 2, 
+      title: 'Feature Extraction', 
+      description: 'Extracting spectrograms, MFCCs, and other audio features', 
+      status: 'completed'
+    },
+    { 
+      step: 3, 
+      title: 'Model Processing', 
+      description: 'Running deep learning model to classify genre', 
+      status: 'completed'
+    },
+    { 
+      step: 4, 
+      title: 'Visualization Generation', 
+      description: 'Creating visual representations of audio analysis', 
+      status: 'completed'
+    }
+  ],
   genrePredictions
 }) => {
   const [activeTab, setActiveTab] = useState<'pipeline' | 'spectrogram' | 'features' | 'predictions'>('pipeline');
@@ -75,9 +102,9 @@ const ClassificationVisualization: React.FC<ClassificationVisualizationProps> = 
         <div className="text-sm text-gray-300 space-y-2">
           <p><strong>Audio Loading:</strong> The system reads your audio file and converts it to a standardized format for analysis.</p>
           <p><strong>Feature Extraction:</strong> Key audio characteristics are extracted including spectrograms, MFCC coefficients, tempo, and spectral features.</p>
-          <p><strong>Preprocessing:</strong> Features are normalized and prepared for the neural network model input.</p>
-          <p><strong>Model Inference:</strong> The trained CNN model processes the features and generates genre predictions.</p>
-          <p><strong>Post-processing:</strong> Raw model outputs are converted to human-readable probabilities and visualizations are generated.</p>
+          <p><strong>Segmentation:</strong> Audio is divided into 30-second segments with 50% overlap for optimal genre classification (matching training data).</p>
+          <p><strong>Model Inference:</strong> The trained CNN model processes the features and generates genre predictions for each segment.</p>
+          <p><strong>Post-processing:</strong> Raw model outputs are averaged across segments and converted to human-readable probabilities with visualizations.</p>
         </div>
       </div>
       

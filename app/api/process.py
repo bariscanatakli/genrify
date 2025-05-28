@@ -10,13 +10,25 @@ keras.config.enable_unsafe_deserialization()
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 os.environ['KERAS_BACKEND'] = 'tensorflow' # Explicitly set backend
 
+# Set clean TensorFlow GPU configuration
+os.environ['TF_FORCE_GPU_ALLOW_GROWTH'] = 'true'
+os.environ['TF_GPU_THREAD_MODE'] = 'gpu_private'
+
 # Helper to print to stderr
 def eprint(*args, **kwargs):
     print(*args, file=sys.stderr, **kwargs)
 
+# TensorFlow bellek ayarlarını optimize edin
+import tensorflow as tf
+gpus = tf.config.experimental.list_physical_devices('GPU')
+if gpus:
+    for gpu in gpus:
+        tf.config.experimental.set_memory_growth(gpu, True)
+
 # Try importing libraries, but provide fallbacks if they're not available
 # First check if we're running in venv
 IN_VENV = sys.prefix != sys.base_prefix
+KEEP_MODEL_LOADED = True
 
 DEPENDENCIES = {
     'librosa': False,
@@ -125,7 +137,7 @@ def ensure_metadata_exists():
 # --- Custom TensorFlow layer definitions for model loading --- #
 if DEPENDENCIES['tensorflow']:
     # SpecAugment for data augmentation
-    @tf.keras.utils.register_keras_serializable(package="Custom", name="SpecAugment")
+    @tf.keras.utils.register_keras_serializable()
     class SpecAugment(tf.keras.layers.Layer):
         def __init__(self, max_f=25, max_t=40, **kwargs):
             super().__init__(**kwargs)
@@ -154,9 +166,13 @@ if DEPENDENCIES['tensorflow']:
                 "max_t": self.max_t
             })
             return config
+            
+        @classmethod
+        def from_config(cls, config):
+            return cls(**config)
 
     # GroupNorm layer
-    @tf.keras.utils.register_keras_serializable(package="Custom", name="GroupNorm")
+    @tf.keras.utils.register_keras_serializable()
     class GroupNorm(tf.keras.layers.Layer):
         def __init__(self, groups=8, epsilon=1e-5, **kwargs):
             super().__init__(**kwargs)
@@ -184,6 +200,10 @@ if DEPENDENCIES['tensorflow']:
                 "epsilon": self.eps
             })
             return config
+            
+        @classmethod
+        def from_config(cls, config):
+            return cls(**config)
 
     # Lambda wrapper for L2 normalization
     @tf.keras.utils.register_keras_serializable()
@@ -200,6 +220,10 @@ if DEPENDENCIES['tensorflow']:
             
         def get_config(self):
             return super().get_config()
+            
+        @classmethod
+        def from_config(cls, config):
+            return cls(**config)
     
     # Define a standalone function for Lambda layers that need l2_normalize
     def l2_normalize_fn(x):
@@ -432,7 +456,7 @@ def audio_to_melspec(audio_path, fixed_length=128):
         return None
 
 def extract_segments(audio_path, segment_seconds=30, overlap=0.5):
-    """Extract overlapping segments from an audio file"""
+    """Extract overlapping segments from an audio file - OPTIMIZED VERSION"""
     if not DEPENDENCIES['librosa']:
         eprint("[WARNING] Cannot extract segments: librosa missing")
         return None
@@ -445,22 +469,39 @@ def extract_segments(audio_path, segment_seconds=30, overlap=0.5):
         segment_len = int(sr * segment_seconds)
         hop = int(segment_len * (1 - overlap))
         
-        # Extract segments
+        # OPTIMIZE: Compute mel-spectrogram for entire audio ONCE
+        mel_full = librosa.feature.melspectrogram(y=y, sr=sr, n_fft=2048, hop_length=512, n_mels=N_MELS)
+        logmel_full = librosa.power_to_db(mel_full, ref=np.max)
+        
+        # Calculate frame positions for segments
+        frames_per_segment = int(segment_seconds * sr / 512)  # hop_length=512
+        frames_hop = int(frames_per_segment * (1 - overlap))
+        
         segments = []
-        for start in range(0, len(y), hop):
-            seg = y[start:start+segment_len]
-            
-            # Pad if segment is shorter than required length
-            if len(seg) < segment_len:
-                seg = np.pad(seg, (0, segment_len - len(seg)), mode="constant")
+        max_segments = 8  # Maksimum segment sayısını sınırla
+        segment_count = 0
+        for frame_start in range(0, logmel_full.shape[1], frames_hop):
+            if segment_count >= max_segments:
+                break
                 
-            # Convert segment to mel spectrogram
-            mel = librosa.feature.melspectrogram(y=seg, sr=sr, n_fft=2048, hop_length=512, n_mels=N_MELS)
-            logmel = librosa.power_to_db(mel, ref=np.max)
-            logmel = (logmel - logmel.min()) / (logmel.max() - logmel.min() + 1e-6)
+            frame_end = frame_start + frames_per_segment
+            
+            # Extract mel segment
+            if frame_end <= logmel_full.shape[1]:
+                mel_seg = logmel_full[:, frame_start:frame_end]
+            else:
+                # Pad if needed
+                mel_seg = logmel_full[:, frame_start:]
+                pad_size = frames_per_segment - mel_seg.shape[1]
+                if pad_size > 0:
+                    mel_seg = np.pad(mel_seg, ((0, 0), (0, pad_size)), mode='constant')
+            
+            # Normalize segment
+            logmel = (mel_seg - mel_seg.min()) / (mel_seg.max() - mel_seg.min() + 1e-6)
             logmel = librosa.util.fix_length(logmel, size=128, axis=1)
             
             segments.append(logmel[..., np.newaxis])
+            segment_count += 1
             
         return segments
     except Exception as e:
@@ -468,13 +509,24 @@ def extract_segments(audio_path, segment_seconds=30, overlap=0.5):
         return None
 
 def predict_genre(audio_path, segment_seconds=30, overlap=0.5, min_segments=1):
-    """Predict genre from audio file using segment-based approach"""
+    """Predict genre from audio file using segment-based approach (with multiprocessing for segments)"""
     global tf
+    from multiprocessing import Pool, cpu_count
     
     if not DEPENDENCIES_AVAILABLE or not ML_READY or classifier_model is None:
         eprint("[WARNING] Using mock predictions - one or more components unavailable")
         return mock_predict(audio_path)
     
+    def predict_segment(segment):
+        try:
+            segment_batch = np.expand_dims(segment, axis=0)
+            # Keras modelleri process'ler arasında paylaşılamaz, bu yüzden fallback olarak tek process kullanılır
+            # Alternatif: model'i global olarak yeniden yükle (ama yavaş). Burada tek process ile çalıştırıyoruz.
+            return classifier_model.predict(segment_batch, verbose=0)[0]
+        except Exception as e:
+            eprint(f"Error predicting segment: {e}")
+            return None
+
     try:
         # Extract segments from the audio file
         segments = extract_segments(audio_path, segment_seconds, overlap)
@@ -486,29 +538,37 @@ def predict_genre(audio_path, segment_seconds=30, overlap=0.5, min_segments=1):
                 eprint("[WARNING] Could not process audio, using mock predictions")
                 return mock_predict(audio_path)
             segments = [mel]
-        
-        # Make predictions for each segment
-        probs_list = []
-        for segment in segments:
-            segment_batch = np.expand_dims(segment, axis=0)  # Add batch dimension
-            try:
-                segment_probs = classifier_model.predict(segment_batch, verbose=0)[0]
-                probs_list.append(segment_probs)
-            except Exception as e:
-                eprint(f"Error predicting segment: {e}")
-                continue
-        
-        if not probs_list:
+
+        # En hızlı yol: segmentleri topluca batch olarak modele ver
+        try:
+            import numpy as np
+            segment_batch = np.stack(segments, axis=0)  # (N, ...)
+            probs_list = classifier_model.predict(segment_batch, verbose=0)
+        except Exception as e:
+            eprint(f"Batch prediction failed, falling back to sequential: {e}")
+            probs_list = []
+            for segment in segments:
+                try:
+                    segment_batch = np.expand_dims(segment, axis=0)
+                    segment_probs = classifier_model.predict(segment_batch, verbose=0)[0]
+                    probs_list.append(segment_probs)
+                except Exception as ex:
+                    eprint(f"Error predicting segment: {ex}")
+            # Geçersiz (None) sonuçları filtrele
+            probs_list = [p for p in probs_list if p is not None]
+
+        # Check if we have valid predictions (handle both numpy array and list cases)
+        if (isinstance(probs_list, np.ndarray) and probs_list.size == 0) or (isinstance(probs_list, list) and not probs_list):
             eprint("[WARNING] No valid predictions from segments, using mock predictions")
             return mock_predict(audio_path)
-        
+
         # Average probabilities across all segments
         avg_probs = np.mean(probs_list, axis=0)
-        
+
         # Get predicted genre and confidence
         pred_idx = np.argmax(avg_probs)
         confidence = float(avg_probs[pred_idx])
-        
+
         # Return results
         return {
             "genre_probabilities": {genre: float(prob) for genre, prob in zip(GENRE_NAMES, avg_probs)},

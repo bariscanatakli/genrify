@@ -37,15 +37,25 @@ export async function POST(request: NextRequest) {
     // Check if GPU/CUDA should be used (default to true if available)
     const useGpu = formData.get('use_gpu') !== 'false';
     
-    // Environment variables for TensorFlow GPU control
+    // Environment variables for TensorFlow GPU control and optimization
     const envVars: Record<string, string> = {
       'PYTHONIOENCODING': 'utf-8',
-      'TF_CPP_MIN_LOG_LEVEL': '2' // Reduce TF verbosity
+      'TF_CPP_MIN_LOG_LEVEL': '2', // Reduce TF verbosity
+      // Critical TensorFlow optimizations
+      'TF_FORCE_GPU_ALLOW_GROWTH': 'true',
+      'TF_GPU_THREAD_MODE': 'gpu_private',
+      'TF_XLA_FLAGS': '--tf_xla_enable_xla_devices',
+      'CUDA_CACHE_DISABLE': '0',
+      'TF_ENABLE_ONEDNN_OPTS': '1'
     };
     
     // If GPU usage is explicitly disabled
     if (!useGpu) {
       envVars['CUDA_VISIBLE_DEVICES'] = '-1'; // Disable GPU
+      // Remove GPU-specific optimizations when GPU is disabled
+      delete envVars['TF_FORCE_GPU_ALLOW_GROWTH'];
+      delete envVars['TF_GPU_THREAD_MODE'];
+      delete envVars['CUDA_CACHE_DISABLE'];
     }
     
     try {
@@ -55,7 +65,7 @@ export async function POST(request: NextRequest) {
         : `${Object.entries(envVars).map(([k,v]) => `${k}=${v}`).join(' ')} ./venv/bin/python -c "import sys; sys.path.append('${normalizedScriptPath}'); from process import predict_genre, output_json; result = predict_genre('${normalizedFilePath}'); output_json(result)"`;
       
       const { stdout, stderr } = await execAsync(command, {
-        env: { ...process.env }, // Pass through current environment
+        env: { ...process.env, ...envVars }, // Pass through current environment + our optimizations
         maxBuffer: 1024 * 1024 * 50  // 50MB buffer for large outputs with visualization data
       });
       
