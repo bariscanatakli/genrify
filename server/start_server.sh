@@ -32,12 +32,12 @@ if [ ! -f "../models/optimized_cnn_model.keras" ]; then
     exit 1
 fi
 
-echo -e "${GREEN}✅ Starting FastAPI server on http://localhost:8000${NC}"
-echo -e "${BLUE}📖 API Documentation available at: http://localhost:8000/docs${NC}"
-echo -e "${BLUE}🏥 Health check available at: http://localhost:8000/health${NC}"
+echo -e "${GREEN}✅ Starting FastAPI server on http://localhost:8888${NC}"
+echo -e "${BLUE}📖 API Documentation available at: http://localhost:8888/docs${NC}"
+echo -e "${BLUE}🏥 Health check available at: http://localhost:8888/health${NC}"
 echo ""
 echo -e "${BLUE}Press Ctrl+C to stop the server${NC}"
 echo ""
 
 # Start the server
-uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+uvicorn main:app --host 0.0.0.0 --port 8888 --reload

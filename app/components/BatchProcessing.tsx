@@ -1,25 +1,22 @@
 'use client';
 
-import React, { useState, useCallback } from 'react';
+import React, { useCallback } from 'react';
 import { UploadCloud, FileText, CheckCircle, XCircle, Loader2, Music, Trash2 } from 'lucide-react';
 import { useDropzone } from 'react-dropzone';
 
-interface BatchPredictionItem {
-  filename: string;
-  predicted_genre: string;
-  confidence: number;
-  genre_probabilities: Record<string, number>;
-  processing_time: number;
-  error?: string;
-}
-
-interface BatchProcessingResponse {
-  predictions: BatchPredictionItem[];
-  total_files: number;
-  successful_predictions: number;
-  failed_predictions: number;
-  total_processing_time: number;
-}
+// Redux imports
+import { useAppDispatch, useAppSelector } from '../redux/hooks';
+import { 
+  setBatchFiles, 
+  addBatchFiles, 
+  removeBatchFile,
+  setBatchResults,
+  setBatchSummary,
+  setBatchProgress,
+  clearBatchState,
+  BatchPredictionItem
+} from '../redux/slices/batchSlice';
+import { setError } from '../redux/slices/uiSlice';
 
 interface BatchProcessingProps {
   apiUrl?: string;
@@ -28,19 +25,16 @@ interface BatchProcessingProps {
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8888';
 
 export default function BatchProcessing({ apiUrl = API_URL }: BatchProcessingProps) {
-  const [files, setFiles] = useState<File[]>([]);
-  const [results, setResults] = useState<BatchPredictionItem[]>([]);
-  const [processing, setProcessing] = useState(false);
-  const [progress, setProgress] = useState(0);
-  const [error, setError] = useState<string | null>(null);
-  const [summary, setSummary] = useState<BatchProcessingResponse | null>(null);
+  // Redux state
+  const dispatch = useAppDispatch();
+  const { files, results, summary, progress } = useAppSelector((state: any) => state.batch);
+  const { error, loading } = useAppSelector(state => state.ui);
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
-    setFiles(prevFiles => [...prevFiles, ...acceptedFiles.filter(file => file.type.startsWith('audio/'))]);
-    setError(null);
-    setResults([]);
-    setSummary(null);
-  }, []);
+    dispatch(addBatchFiles(acceptedFiles.filter(file => file.type.startsWith('audio/'))));
+    dispatch(setError(null));
+    dispatch(clearBatchState());
+  }, [dispatch]);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({ 
     onDrop, 
@@ -49,23 +43,22 @@ export default function BatchProcessing({ apiUrl = API_URL }: BatchProcessingPro
   });
 
   const removeFile = (fileName: string) => {
-    setFiles(files.filter(file => file.name !== fileName));
+    dispatch(removeBatchFile(fileName));
   };
 
   const handleBatchPredict = async () => {
     if (files.length === 0) {
-      setError('Please select audio files first.');
+      dispatch(setError('Please select audio files first.'));
       return;
     }
 
-    setProcessing(true);
-    setError(null);
-    setResults([]);
-    setSummary(null);
-    setProgress(0);
+    dispatch(setBatchProgress(0));
+    dispatch(setError(null));
+    dispatch(setBatchResults([]));
+    dispatch(setBatchSummary(null));
 
     const formData = new FormData();
-    files.forEach(file => {
+    files.forEach((file: File) => {
       formData.append('files', file);
     });
 
@@ -80,28 +73,27 @@ export default function BatchProcessing({ apiUrl = API_URL }: BatchProcessingPro
         throw new Error(errorData.detail || 'Batch prediction failed');
       }
 
-      const data: BatchProcessingResponse = await response.json();
-      setResults(data.predictions || []);
-      setSummary(data);
+      const data = await response.json();
+      dispatch(setBatchResults(data.predictions || []));
+      dispatch(setBatchSummary(data));
+      
       // Simulate progress for demo purposes if not provided by API
-      // In a real scenario, this would come from server-sent events or polling
       let currentProgress = 0;
       const interval = setInterval(() => {
         currentProgress += 10;
         if (currentProgress <= 100) {
-          setProgress(currentProgress);
+          dispatch(setBatchProgress(currentProgress));
         } else {
           clearInterval(interval);
         }
       }, 200);
-      setProgress(100); // Or set based on actual processing of results
+      
+      dispatch(setBatchProgress(100));
 
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'An unknown error occurred');
-      setResults([]); // Clear results on error
-      setSummary(null);
-    } finally {
-      setProcessing(false);
+      dispatch(setError(err instanceof Error ? err.message : 'An unknown error occurred'));
+      dispatch(setBatchResults([]));
+      dispatch(setBatchSummary(null));
     }
   };
 
@@ -151,7 +143,7 @@ export default function BatchProcessing({ apiUrl = API_URL }: BatchProcessingPro
           <div className="mt-6">
             <h3 className="text-lg font-semibold text-gray-200 mb-3">Selected Files ({files.length}):</h3>
             <div className="max-h-60 overflow-y-auto space-y-2 pr-2 scrollbar-thin scrollbar-thumb-purple-500 scrollbar-track-gray-700/50">
-              {files.map(file => (
+              {files.map((file: File) => (
                 <div key={file.name} className="flex items-center justify-between p-3 bg-gray-700/50 rounded-lg hover:bg-gray-600/50 transition-all duration-200">
                   <div className="flex items-center space-x-3">
                     <Music className="w-5 h-5 text-purple-400" />
@@ -173,10 +165,10 @@ export default function BatchProcessing({ apiUrl = API_URL }: BatchProcessingPro
         <div className="mt-8 text-center">
           <button
             onClick={handleBatchPredict}
-            disabled={processing || files.length === 0}
+            disabled={loading || files.length === 0}
             className="morph-button px-8 py-4 text-lg font-bold disabled:opacity-50 disabled:cursor-not-allowed relative overflow-hidden ripple flex items-center justify-center mx-auto"
           >
-            {processing ? (
+            {loading ? (
               <>
                 <Loader2 className="w-6 h-6 mr-3 animate-spin" />
                 Processing Batch...
@@ -198,7 +190,7 @@ export default function BatchProcessing({ apiUrl = API_URL }: BatchProcessingPro
         </div>
       )}
 
-      {processing && (
+      {progress > 0 && progress < 100 && (
         <div className="mt-6">
           <div className="h-4 bg-gray-700 rounded-full overflow-hidden">
             <div 
@@ -253,34 +245,32 @@ export default function BatchProcessing({ apiUrl = API_URL }: BatchProcessingPro
                 </tr>
               </thead>
               <tbody>
-                {results.map((item, index) => (
+                {results.map((item: BatchPredictionItem, index: number) => (
                   <tr key={index} className="border-b border-gray-800 hover:bg-gray-700/30 transition-colors duration-200">
                     <td className="p-4 text-sm text-gray-400 truncate max-w-xs">{item.filename}</td>
                     <td className="p-4 text-sm font-semibold text-purple-300">{item.predicted_genre || 'N/A'}</td>
                     <td className="p-4 text-sm">
-                      {item.confidence ? (
-                        <div className="flex items-center space-x-2">
-                          <span className={`${item.confidence > 0.7 ? 'text-green-400' : item.confidence > 0.4 ? 'text-yellow-400' : 'text-red-400'}`}>
-                            {(item.confidence * 100).toFixed(1)}%
-                          </span>
-                          <div className="w-16 h-2 bg-gray-600 rounded-full">
-                            <div 
-                              className={`h-full rounded-full ${item.confidence > 0.7 ? 'bg-green-500' : item.confidence > 0.4 ? 'bg-yellow-500' : 'bg-red-500'}`}
-                              style={{ width: `${item.confidence * 100}%` }}
-                            ></div>
-                          </div>
+                      <div className="flex items-center space-x-2">
+                        <span className={`${item.confidence > 0.7 ? 'text-green-400' : item.confidence > 0.4 ? 'text-yellow-400' : 'text-red-400'}`}>
+                          {(item.confidence * 100).toFixed(1)}%
+                        </span>
+                        <div className="w-16 h-2 bg-gray-600 rounded-full">
+                          <div 
+                            className={`h-full rounded-full ${item.confidence > 0.7 ? 'bg-green-500' : item.confidence > 0.4 ? 'bg-yellow-500' : 'bg-red-500'}`}
+                            style={{ width: `${item.confidence * 100}%` }}
+                          ></div>
                         </div>
-                      ) : 'N/A'}
+                      </div>
                     </td>
-                    <td className="p-4 text-sm text-gray-500">{item.processing_time?.toFixed(2) || 'N/A'}</td>
-                    <td className="p-4 text-sm">
+                    <td className="p-4 text-sm text-gray-400">{item.processing_time.toFixed(2)}s</td>
+                    <td className="p-4">
                       {item.error ? (
-                        <span className="flex items-center text-red-400">
-                          <XCircle className="w-4 h-4 mr-1.5" /> Failed
+                        <span className="text-xs font-medium bg-red-500/20 text-red-300 rounded-full px-2 py-1 inline-flex items-center">
+                          <XCircle className="w-3 h-3 mr-1" /> Error
                         </span>
                       ) : (
-                        <span className="flex items-center text-green-400">
-                          <CheckCircle className="w-4 h-4 mr-1.5" /> Success
+                        <span className="text-xs font-medium bg-green-500/20 text-green-300 rounded-full px-2 py-1 inline-flex items-center">
+                          <CheckCircle className="w-3 h-3 mr-1" /> Success
                         </span>
                       )}
                     </td>

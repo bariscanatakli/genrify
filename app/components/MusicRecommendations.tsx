@@ -1,7 +1,8 @@
 'use client';
 
-import React, { useState } from 'react';
-import { Card, CardContent } from '../components/ui/card';
+import React, { useState, useEffect } from 'react';
+import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
+import { Music, Loader2, ThumbsUp, RefreshCcw, AlertCircle, HeadphonesIcon } from 'lucide-react';
 
 interface MusicRecommendation {
   id: string;
@@ -10,187 +11,172 @@ interface MusicRecommendation {
   similarity: number;
 }
 
-interface RecommendationResponse {
-  recommendations: MusicRecommendation[];
-  processing_time: number;
-  query_file: string;
-}
-
 interface MusicRecommendationsProps {
   audioFile: File | null;
-  isVisible: boolean;
+  apiUrl?: string;
+  isVisible?: boolean;
+  maxRecommendations?: number;
 }
 
-export default function MusicRecommendations({ audioFile, isVisible }: MusicRecommendationsProps) {
+const MusicRecommendations: React.FC<MusicRecommendationsProps> = ({
+  audioFile,
+  apiUrl = 'http://localhost:8888',
+  isVisible = true,
+  maxRecommendations = 5
+}) => {
   const [recommendations, setRecommendations] = useState<MusicRecommendation[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
+  const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
-  const [processingTime, setProcessingTime] = useState<number | null>(null);
+  const [processingTime, setProcessingTime] = useState<number>(0);
+
+  useEffect(() => {
+    if (audioFile && isVisible) {
+      getRecommendations();
+    }
+  }, [audioFile, isVisible]);
 
   const getRecommendations = async () => {
-    if (!audioFile) {
-      setError('No audio file selected');
-      return;
-    }
-
-    setIsLoading(true);
+    if (!audioFile) return;
+    
+    setLoading(true);
     setError(null);
-    setRecommendations([]);
-
+    
     try {
       const formData = new FormData();
       formData.append('file', audioFile);
-      formData.append('top_k', '8'); // Get 8 recommendations
-
-      const response = await fetch('http://localhost:8888/recommend', {
+      formData.append('top_k', maxRecommendations.toString());
+      
+      const response = await fetch(`${apiUrl}/recommend`, {
         method: 'POST',
         body: formData,
       });
-
+      
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        const errorData = await response.json();
+        throw new Error(errorData.detail || 'Failed to get recommendations');
       }
-
-      const data: RecommendationResponse = await response.json();
-      setRecommendations(data.recommendations);
-      setProcessingTime(data.processing_time);
+      
+      const data = await response.json();
+      setRecommendations(data.recommendations || []);
+      setProcessingTime(data.processing_time || 0);
+      
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to get recommendations');
-      console.error('Recommendation error:', err);
+      console.error('Error fetching recommendations:', err);
+      setError(err instanceof Error ? err.message : 'An error occurred');
     } finally {
-      setIsLoading(false);
+      setLoading(false);
     }
   };
 
   if (!isVisible) return null;
 
-  const getSimilarityColor = (similarity: number) => {
-    if (similarity >= 0.8) return 'text-green-400';
-    if (similarity >= 0.6) return 'text-yellow-400';
-    return 'text-red-400';
-  };
-
-  const getSimilarityBadge = (similarity: number) => {
-    if (similarity >= 0.8) return 'High';
-    if (similarity >= 0.6) return 'Medium';
-    return 'Low';
-  };
-
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h2 className="text-2xl font-bold text-white">🎵 Music Recommendations</h2>
-        <button
-          onClick={getRecommendations}
-          disabled={!audioFile || isLoading}
-          className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-        >
-          {isLoading ? (
-            <div className="flex items-center space-x-2">
-              <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-              <span>Analyzing...</span>
-            </div>
-          ) : (
-            'Get Similar Music'
-          )}
-        </button>
+    <div className="space-y-8">
+      <div className="text-center mb-2">
+        <p className="text-gray-400">
+          Based on your uploaded track, you might like these similar songs:
+        </p>
       </div>
-
-      {error && (
-        <div className="bg-red-900/20 border border-red-500/30 rounded-lg p-4">
-          <p className="text-red-400">{error}</p>
-        </div>
-      )}
-
-      {processingTime && (
-        <div className="text-sm text-gray-400">
-          Analysis completed in {processingTime}s using AI-powered audio similarity
-        </div>
-      )}
-
-      {recommendations.length > 0 && (
-        <div className="space-y-4">
-          <div className="bg-blue-900/20 border border-blue-500/30 rounded-lg p-4">
-            <h4 className="text-md font-medium text-blue-300 mb-2">🔍 How Recommendations Work</h4>
-            <div className="text-sm text-gray-300 space-y-1">
-              <p><strong>Audio Embeddings:</strong> Your music is converted to a 128-dimensional feature vector using triplet neural networks</p>
-              <p><strong>Similarity Search:</strong> FAISS (Facebook AI Similarity Search) finds the closest matches in embedding space</p>
-              <p><strong>Cosine Similarity:</strong> Scores range from 0-1, where 1.0 means identical audio characteristics</p>
+      
+      {loading ? (
+        <Card className="glass-card p-8 text-center">
+          <div className="flex flex-col items-center space-y-4">
+            <Loader2 size={48} className="text-purple-400 animate-spin" />
+            <div>
+              <h3 className="text-xl font-medium mb-2">Finding Similar Music...</h3>
+              <p className="text-gray-400">Analyzing audio patterns and comparing with our music database</p>
             </div>
           </div>
-
-          <div className="grid gap-4">
-            {recommendations.map((rec, index) => (
-              <Card key={rec.id} className="bg-black/20 backdrop-blur-sm border-gray-700/50">
+        </Card>
+      ) : error ? (
+        <Card className="glass-card p-6 border-red-500/30">
+          <div className="flex items-center space-x-4">
+            <AlertCircle size={32} className="text-red-400" />
+            <div>
+              <h3 className="text-lg font-medium mb-1">Error Finding Recommendations</h3>
+              <p className="text-red-300">{error}</p>
+            </div>
+          </div>
+          <div className="flex justify-center mt-4">
+            <button
+              onClick={getRecommendations}
+              className="morph-button px-4 py-2 flex items-center space-x-2"
+            >
+              <RefreshCcw size={16} />
+              <span>Try Again</span>
+            </button>
+          </div>
+        </Card>
+      ) : recommendations.length > 0 ? (
+        <div className="space-y-4">
+          <div className="glass-card p-4 rounded-lg mb-2">
+            <p className="text-center text-sm text-gray-400">
+              Recommendations processed in {processingTime.toFixed(2)}s
+            </p>
+          </div>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {recommendations.map((recommendation, index) => (
+              <Card 
+                key={recommendation.id}
+                className={`dynamic-card stagger-animation hover:bg-purple-900/10 transition-all duration-300`}
+                style={{ animationDelay: `${index * 0.1}s` }}
+              >
                 <CardContent className="p-4">
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-4">
+                    <div className="w-12 h-12 rounded-full bg-gradient-to-br from-purple-500/30 to-blue-500/30 flex items-center justify-center">
+                      <HeadphonesIcon size={24} className="text-purple-300" />
+                    </div>
                     <div className="flex-1">
-                      <div className="flex items-center space-x-3">
-                        <div className="text-2xl">
-                          {index === 0 ? '🏆' : index === 1 ? '🥈' : index === 2 ? '🥉' : '🎵'}
+                      <h3 className="text-lg font-medium line-clamp-1">{recommendation.title}</h3>
+                      <div className="flex justify-between items-center text-sm">
+                        <span className="text-purple-300">{recommendation.genre}</span>
+                        <div className="flex items-center">
+                          <ThumbsUp size={14} className="mr-1 text-blue-400" />
+                          <span className="text-blue-300">
+                            {(recommendation.similarity * 100).toFixed(1)}% match
+                          </span>
                         </div>
-                        <div>
-                          <h3 className="font-semibold text-white">{rec.title}</h3>
-                          <p className="text-sm text-gray-400">Genre: {rec.genre}</p>
-                        </div>
                       </div>
-                    </div>
-                    
-                    <div className="text-right">
-                      <div className={`text-lg font-bold ${getSimilarityColor(rec.similarity)}`}>
-                        {(rec.similarity * 100).toFixed(1)}%
-                      </div>
-                      <div className="text-xs text-gray-500">
-                        {getSimilarityBadge(rec.similarity)} Match
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Similarity bar */}
-                  <div className="mt-3">
-                    <div className="flex justify-between text-xs text-gray-400 mb-1">
-                      <span>Audio Similarity</span>
-                      <span>{rec.similarity.toFixed(3)}</span>
-                    </div>
-                    <div className="w-full bg-gray-700 rounded-full h-2">
-                      <div
-                        className={`h-2 rounded-full transition-all duration-500 ${
-                          rec.similarity >= 0.8 ? 'bg-green-500' :
-                          rec.similarity >= 0.6 ? 'bg-yellow-500' : 'bg-red-500'
-                        }`}
-                        style={{ width: `${rec.similarity * 100}%` }}
-                      ></div>
                     </div>
                   </div>
                 </CardContent>
               </Card>
             ))}
           </div>
-
-          <div className="bg-gray-900/50 rounded-lg p-4 text-sm text-gray-400">
-            <p><strong>Note:</strong> Recommendations are based on audio content similarity, not metadata matching. 
-            High similarity scores indicate songs with similar acoustic properties, rhythm patterns, and timbral characteristics.</p>
+        </div>
+      ) : !audioFile ? (
+        <Card className="glass-card p-8 text-center">
+          <div className="flex flex-col items-center space-y-4">
+            <Music size={48} className="text-gray-500" />
+            <div>
+              <h3 className="text-xl font-medium mb-2">Upload Music First</h3>
+              <p className="text-gray-400">Upload an audio file to get music recommendations</p>
+            </div>
           </div>
-        </div>
-      )}
-
-      {isLoading && (
-        <div className="text-center py-8">
-          <div className="w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-          <p className="text-gray-400">Extracting audio embeddings and searching similarity space...</p>
-          <p className="text-sm text-gray-500 mt-2">This may take 10-15 seconds</p>
-        </div>
-      )}
-
-      {!isLoading && !error && recommendations.length === 0 && audioFile && (
-        <div className="text-center py-8 text-gray-400">
-          <div className="text-4xl mb-4">🎼</div>
-          <p>Upload an audio file and click "Get Similar Music" to discover recommendations</p>
-          <p className="text-sm text-gray-500 mt-2">
-            Uses triplet neural networks trained on 16,000+ music tracks
-          </p>
-        </div>
+        </Card>
+      ) : (
+        <Card className="glass-card p-8 text-center">
+          <div className="flex flex-col items-center space-y-4">
+            <Music size={48} className="text-gray-500" />
+            <div>
+              <h3 className="text-xl font-medium mb-2">No Recommendations Found</h3>
+              <p className="text-gray-400">We couldn't find similar music for this track</p>
+            </div>
+          </div>
+          <div className="flex justify-center mt-4">
+            <button
+              onClick={getRecommendations}
+              className="morph-button px-4 py-2 flex items-center space-x-2"
+            >
+              <RefreshCcw size={16} />
+              <span>Try Again</span>
+            </button>
+          </div>
+        </Card>
       )}
     </div>
   );
-}
+};
+
+export default MusicRecommendations;

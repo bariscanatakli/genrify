@@ -11,14 +11,14 @@ import logging
 from pathlib import Path
 from typing import Dict, Optional, List, Any
 import shutil
+import sys
+import traceback
 
-from fastapi import FastAPI, File, UploadFile, HTTPException, Form
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
-from pydantic import BaseModel
-import uvicorn
+# Configure logging - MOVED UP before imports that use it
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-# Configure TensorFlow before importing it
+# Configure TensorFlow environment variables BEFORE importing TensorFlow or anything that imports it
 os.environ['TF_FORCE_GPU_ALLOW_GROWTH'] = 'true'
 os.environ['TF_GPU_THREAD_MODE'] = 'gpu_private'
 os.environ['TF_XLA_FLAGS'] = '--tf_xla_enable_xla_devices'
@@ -26,23 +26,35 @@ os.environ['CUDA_CACHE_DISABLE'] = '0'
 os.environ['TF_ENABLE_ONEDNN_OPTS'] = '1'
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 
-# Import the music processing functions
-import sys
-sys.path.append(str(Path(__file__).parent.parent / "app" / "api"))
+# Configure TensorFlow GPU memory before any other imports
+try:
+    import tensorflow as tf
+    gpus = tf.config.experimental.list_physical_devices('GPU')
+    if gpus:
+        logger.info(f"Found {len(gpus)} GPU(s). Setting memory growth.")
+        for gpu in gpus:
+            tf.config.experimental.set_memory_growth(gpu, True)
+        logger.info("Memory growth set for all GPUs")
+except Exception as e:
+    logger.warning(f"Could not set GPU memory growth: {e}")
+
+from fastapi import FastAPI, File, UploadFile, HTTPException, Form
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel
+import uvicorn
+
+# Import the server's local version of the get_hann_window function
+from process import get_hann_window, init as init_process
 
 # Set the working directory to server directory so models path is correct
 os.chdir(str(Path(__file__).parent))
 
-try:
-    import process
-    from process import predict_genre, predict_genre_with_visualization, get_recommendations
-except ImportError as e:
-    logging.error(f"Failed to import processing functions: {e}")
-    sys.exit(1)
+# Initialize process functions
+init_process()
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+# Now import the needed functions after initialization
+from process import predict_genre, predict_genre_with_visualization, get_recommendations
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -54,7 +66,7 @@ app = FastAPI(
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000", "http://localhost:3001"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -227,14 +239,46 @@ async def predict_with_visualization_endpoint(
         # Set GPU usage
         if not use_gpu:
             os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
+        else:
+            # Make sure we reset this if it was set to -1 before
+            if 'CUDA_VISIBLE_DEVICES' in os.environ and os.environ['CUDA_VISIBLE_DEVICES'] == '-1':
+                del os.environ['CUDA_VISIBLE_DEVICES']
         
-        # Process with visualization
+        # Process with visualization - add some error handling and verification
         import time
         start_time = time.time()
         
-        result = predict_genre_with_visualization(temp_file_path)
+        try:
+            # Check explicitly if the hann window function is available
+            logger.info("Checking if get_hann_window is available...")
+            try:
+                window = get_hann_window(1024)  # Test the function with a sample size
+                logger.info("✅ get_hann_window function works correctly")
+            except Exception as window_error:
+                logger.error(f"❌ Error using get_hann_window function: {window_error}")
+            
+            # Use the full visualization function if the window function works
+            result = predict_genre_with_visualization(temp_file_path)
+            
+            # Verify the result has visualization data
+            if result and 'visualization_data' not in result:
+                logger.warning("Visualization data missing from result, adding empty dict")
+                result['visualization_data'] = {}
+                
+        except Exception as e:
+            logger.error(f"Error in visualization function: {e}")
+            logger.error(traceback.format_exc())
+            # Fall back to regular prediction
+            basic_result = predict_genre(temp_file_path)
+            result = {**basic_result, 'visualization_data': {}}
         
         processing_time = time.time() - start_time
+        
+        # Log visualization data keys to help with debugging
+        viz_keys = "No visualization data"
+        if result and 'visualization_data' in result:
+            viz_keys = ", ".join(result['visualization_data'].keys()) if result['visualization_data'] else "Empty dict"
+        logger.info(f"Visualization data keys: {viz_keys}")
         
         # Clean up result
         prediction = GenrePredictionWithVisualization(
@@ -242,7 +286,7 @@ async def predict_with_visualization_endpoint(
             confidence=float(result['confidence']),
             genre_probabilities={k: float(v) for k, v in result['genre_probabilities'].items()},
             processing_time=round(processing_time, 2),
-            visualization_data=result.get('visualization_data')
+            visualization_data=result.get('visualization_data', {})
         )
         
         logger.info(f"✅ Prediction with viz completed in {processing_time:.2f}s: {result['predicted_genre']}")
@@ -731,6 +775,77 @@ async def predict_ensemble_endpoint(
     except Exception as e:
         logger.error(f"❌ Error in ensemble prediction for {file.filename}: {e}")
         raise HTTPException(status_code=500, detail=f"Ensemble prediction failed: {str(e)}")
+    
+    finally:
+        # Clean up
+        if temp_file and os.path.exists(temp_file_path):
+            try:
+                os.unlink(temp_file_path)
+            except Exception as e:
+                logger.warning(f"Failed to clean up temp file: {e}")
+
+@app.post("/audio/process")
+async def process_audio(
+    file: UploadFile = File(...),
+    use_gpu: bool = Form(True)
+):
+    """
+    Process audio file and return intermediate results for visualization
+    """
+    if not file.filename.lower().endswith(('.mp3', '.wav', '.m4a')):
+        raise HTTPException(
+            status_code=400, 
+            detail="Invalid file format. Please upload MP3, WAV, or M4A files."
+        )
+    
+    temp_file = None
+    try:
+        # Create temporary file
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.mp3') as temp_file:
+            shutil.copyfileobj(file.file, temp_file)
+            temp_file_path = temp_file.name
+        
+        logger.info(f"Processing audio pipeline: {file.filename}")
+        
+        # Set GPU usage
+        if not use_gpu:
+            os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
+        
+        # Extract basic audio info without running the full model
+        import time
+        start_time = time.time()
+        
+        try:
+            import librosa
+            import numpy as np
+            
+            # Load audio and extract basic features
+            y, sr = librosa.load(temp_file_path, sr=22050)
+            
+            # Get duration
+            duration = librosa.get_duration(y=y, sr=sr)
+            
+            # Calculate basic stats
+            processing_time = time.time() - start_time
+            
+            return {
+                "filename": file.filename,
+                "sample_rate": sr,
+                "duration_seconds": duration,
+                "channels": 1 if len(y.shape) == 1 else y.shape[1],
+                "processing_time": round(processing_time, 2),
+                "success": True
+            }
+        except Exception as e:
+            logger.error(f"Error processing audio: {e}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
+    
+    except Exception as e:
+        logger.error(f"Error in audio processing: {e}")
+        raise HTTPException(status_code=500, detail=f"Audio processing failed: {str(e)}")
     
     finally:
         # Clean up

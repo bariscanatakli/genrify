@@ -1,4 +1,4 @@
-import * as React from "react"
+import React from "react";
 
 const Card = React.forwardRef<
   HTMLDivElement,
@@ -6,7 +6,7 @@ const Card = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <div
     ref={ref}
-    className={`glass-card glass-card-hover rounded-2xl border border-white/10 bg-white/5 backdrop-blur-md text-white shadow-xl transition-all duration-300 ${className || ''}`}
+    className={`rounded-lg border border-slate-700/50 bg-slate-900/40 text-white shadow-sm ${className || ''}`}
     {...props}
   />
 ))
@@ -18,7 +18,7 @@ const CardHeader = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <div
     ref={ref}
-    className={`flex flex-col space-y-2 p-6 ${className || ''}`}
+    className={`flex flex-col space-y-1.5 p-6 ${className || ''}`}
     {...props}
   />
 ))
@@ -30,7 +30,7 @@ const CardTitle = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <h3
     ref={ref}
-    className={`text-2xl font-bold leading-none tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-pink-400 ${className || ''}`}
+    className={`text-lg font-semibold leading-none tracking-tight ${className || ''}`}
     {...props}
   />
 ))
@@ -42,7 +42,7 @@ const CardDescription = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <p
     ref={ref}
-    className={`text-lg text-gray-300 leading-relaxed ${className || ''}`}
+    className={`text-sm text-gray-400 ${className || ''}`}
     {...props}
   />
 ))
@@ -52,7 +52,7 @@ const CardContent = React.forwardRef<
   HTMLDivElement,
   React.HTMLAttributes<HTMLDivElement>
 >(({ className, ...props }, ref) => (
-  <div ref={ref} className={`p-6 pt-0 text-gray-200 ${className || ''}`} {...props} />
+  <div ref={ref} className={`p-6 pt-0 ${className || ''}`} {...props} />
 ))
 CardContent.displayName = "CardContent"
 
@@ -62,7 +62,7 @@ const CardFooter = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <div
     ref={ref}
-    className={`flex items-center p-6 pt-0 text-gray-300 ${className || ''}`}
+    className={`flex items-center p-6 pt-0 ${className || ''}`}
     {...props}
   />
 ))

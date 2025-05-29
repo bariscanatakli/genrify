@@ -3,53 +3,35 @@
 import { useState, useEffect, useRef } from 'react';
 import ClassificationVisualization from './components/ClassificationVisualization';
 import GenreRadar from './components/GenreRadar';
-import MusicRecommendations from './components/MusicRecommendations';
 import AdvancedPrediction from './components/AdvancedPrediction';
 import AudioProcessingPipeline from './components/AudioProcessingPipeline';
 import BatchProcessing from './components/BatchProcessing';
-import ModelDashboard from './components/ModelDashboard';
-import EnsemblePrediction from './components/EnsemblePrediction';
+
+// Redux imports
+import { useAppDispatch, useAppSelector } from './redux/hooks';
+import { setFile, setPredictionResult, clearPrediction } from './redux/slices/predictionSlice';
+import { 
+  setActiveTab,
+  setNavHovered,
+  setLoading,
+  setError,
+  setShowVisualization,
+  setUseGpu,
+  setUseAdvancedPrediction,
+  setServerHealth
+} from './redux/slices/uiSlice';
+import { setPipelineData } from './redux/slices/pipelineSlice';
 
 // API Configuration
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8888';
 
-// Interfaces
-interface GenrePrediction {
-  predicted_genre: string;
-  confidence: number;
-  genre_probabilities: Record<string, number>;
-  processing_time: number;
-  visualization_data?: {
-    spectrogram?: string;
-    mel_spectrogram?: string;
-    mfcc_features?: number[][];
-    chroma_features?: number[][];
-    spectral_features?: {
-      spectral_centroid: number[];
-      spectral_rolloff: number[];
-      zero_crossing_rate: number[];
-    };
-    tempo?: number;
-    model_predictions?: number[];
-  };
-}
-
-interface ServerHealth {
-  status: string;
-  gpu_available: boolean;
-  model_loaded: boolean;
-}
-
 // Tab navigation configuration
 const navigationTabs = [
   { id: 'prediction', label: 'Prediction', icon: '🎯' },
-  { id: 'recommendations', label: 'Recommendations', icon: '💿' },
   { id: 'advanced', label: 'Advanced', icon: '⚗️' },
   { id: 'pipeline', label: 'Pipeline', icon: '⚙️' },
-  { id: 'spectogram', label: 'Spectogram', icon: '📊' }, // Yeni tab
-  { id: 'batch', label: 'Batch', icon: '📦' },
-  { id: 'dashboard', label: 'Dashboard', icon: '📊' },
-  { id: 'ensemble', label: 'Ensemble', icon: '🤖' }
+  { id: 'spectrogram', label: 'Spectrogram', icon: '📊' }, // Fixed spelling
+  { id: 'batch', label: 'Batch', icon: '📦' }
 ];
 
 // Architecture highlights data
@@ -75,27 +57,18 @@ const architectureHighlights = [
 ];
 
 export default function Home() {
-  // State management
-  const [file, setFile] = useState<File | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<GenrePrediction | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [useGpu, setUseGpu] = useState(true);
-  const [serverHealth, setServerHealth] = useState<ServerHealth | null>(null);
-  const [showVisualization, setShowVisualization] = useState(false);
-  const [useAdvancedPrediction, setUseAdvancedPrediction] = useState(false);
-  const [activeTab, setActiveTab] = useState<'prediction' | 'recommendations' | 'advanced' | 'pipeline' | 'batch' | 'dashboard' | 'ensemble' | 'spectogram'>('prediction');
-  const [navHovered, setNavHovered] = useState(false);
-  const [pipelineData, setPipelineData] = useState<any>(null);
-  
-  // Refs
+  // Redux state
+    const dispatch = useAppDispatch();
+    const { activeTab, navHovered, loading, error, useGpu, useAdvancedPrediction, serverHealth, showVisualization } = useAppSelector(state => state.ui);
+    const { file, result } = useAppSelector((state: { prediction: any }) => state.prediction);
+    const { pipelineData } = useAppSelector((state: any) => state.pipeline);
+    
+    // Refs
   const navigationRef = useRef<HTMLDivElement>(null);
 
   // Effects
   useEffect(() => {
     checkServerHealth();
-    // Sadece navigasyon bileşeni için bir temizleme işlemi yap
-    // Diğer hover efekt kodlarını kaldır çünkü React state kullanacağız
   }, []);
 
   // API functions
@@ -104,34 +77,35 @@ export default function Home() {
       const response = await fetch(`${API_BASE_URL}/health`);
       if (response.ok) {
         const health = await response.json();
-        setServerHealth(health);
+        dispatch(setServerHealth(health));
       } else {
-        setServerHealth({ status: 'unhealthy', gpu_available: false, model_loaded: false });
+        dispatch(setServerHealth({ status: 'unhealthy', gpu_available: false, model_loaded: false }));
       }
     } catch {
-      setServerHealth({ status: 'offline', gpu_available: false, model_loaded: false });
+      dispatch(setServerHealth({ status: 'offline', gpu_available: false, model_loaded: false }));
     }
   };
 
   const classifyMusic = async () => {
     if (!file) return;
 
-    setLoading(true);
-    setError(null);
+    dispatch(setLoading(true));
+    dispatch(setError(null));
     
-    // Sınıflandırma yaparken pipeline'ı görüntülemek için otomatik olarak pipeline tab'ına geç
-    setActiveTab('pipeline');
+    // Show pipeline during classification
+    dispatch(setActiveTab('pipeline'));
 
     const formData = new FormData();
     formData.append('file', file);
     formData.append('use_gpu', useGpu.toString());
 
+    // IMPORTANT: Add this parameter explicitly to request visualization data
     if (useAdvancedPrediction) {
       formData.append('include_visualization', 'true');
     }
 
     try {
-      // Pipeline verilerini da al
+      // Pipeline data request
       const pipelineResponse = await fetch(`${API_BASE_URL}/audio/process`, {
         method: 'POST',
         body: formData,
@@ -139,12 +113,15 @@ export default function Home() {
       
       if (pipelineResponse.ok) {
         const pipelineResult = await pipelineResponse.json();
-        setPipelineData(pipelineResult);
+        dispatch(setPipelineData(pipelineResult));
       }
 
+      // Use the correct endpoint based on whether we need visualization data
       const endpoint = useAdvancedPrediction
-        ? `${API_BASE_URL}/predict/advanced`
+        ? `${API_BASE_URL}/predict-with-viz`  // Make sure this endpoint exists in your FastAPI server
         : `${API_BASE_URL}/predict`;
+
+      console.log(`Using endpoint: ${endpoint} with advanced mode: ${useAdvancedPrediction}`);
 
       const response = await fetch(endpoint, {
         method: 'POST',
@@ -157,19 +134,27 @@ export default function Home() {
       }
 
       const prediction = await response.json();
-      setResult(prediction);
+      console.log('Received prediction:', prediction);
+
+      // Log whether visualization data was received
+      if (prediction.visualization_data) {
+        console.log('Visualization data received');
+      } else {
+        console.warn('No visualization data in response');
+      }
+
+      dispatch(setPredictionResult(prediction));
 
       // Auto-show visualization if we have visualization data
       if (prediction.visualization_data) {
-        setShowVisualization(true);
-        
-        // İşlem bittikten sonra prediction tab'ına geri dön
-        setActiveTab('prediction');
+        dispatch(setShowVisualization(true));
+        // Automatically switch to spectrogram tab to show visualizations
+        dispatch(setActiveTab('spectrogram')); // Fixed spelling from 'spectogram' to 'spectrogram'
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'An error occurred');
+      dispatch(setError(err instanceof Error ? err.message : 'An error occurred'));
     } finally {
-      setLoading(false);
+      dispatch(setLoading(false));
     }
   };
 
@@ -177,22 +162,21 @@ export default function Home() {
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = event.target.files?.[0];
     if (selectedFile) {
-      setFile(selectedFile);
-      setResult(null);
-      setError(null);
-      setShowVisualization(false);
+      dispatch(setFile(selectedFile));
+      dispatch(clearPrediction());
+      dispatch(setError(null));
+      dispatch(setShowVisualization(false));
     }
   };
 
   // Helper functions
   const handleTabChange = (tabId: string) => {
-    setActiveTab(tabId as any);
+    dispatch(setActiveTab(tabId as any));
     
-    // Geliştirilmiş kaydırma davranışı
+    // Enhanced scrolling behavior
     setTimeout(() => {
       const contentArea = document.getElementById('tab-content');
       if (contentArea) {
-        // Sayfa başına sabit bir offset (header yüksekliği) ekleyelim
         const headerOffset = 100;
         const elementPosition = contentArea.getBoundingClientRect().top;
         const offsetPosition = elementPosition + window.pageYOffset - headerOffset;
@@ -202,7 +186,7 @@ export default function Home() {
           behavior: 'smooth'
         });
       }
-    }, 100); // Yeni içerik yüklenmesi için kısa bir gecikme
+    }, 100);
   };
 
   // UI Components
@@ -307,7 +291,7 @@ export default function Home() {
 
   const renderNavigation = () => (
     <>
-      {/* Masaüstü Navigasyon - Solda hover ile genişleyen */}
+      {/* Desktop Navigation */}
       <div 
         ref={navigationRef}
         className="fixed left-0 top-1/2 transform -translate-y-1/2 z-50 hidden md:block"
@@ -315,8 +299,8 @@ export default function Home() {
         <div 
           className="prism-glass dynamic-card rounded-r-xl p-2 ml-0 shadow-xl transition-all duration-300 ease-in-out overflow-hidden hover:shadow-purple-500/20 hover:shadow-lg"
           style={{ width: navHovered ? '180px' : '74px' }}
-          onMouseEnter={() => setNavHovered(true)}
-          onMouseLeave={() => setNavHovered(false)}
+          onMouseEnter={() => dispatch(setNavHovered(true))}
+          onMouseLeave={() => dispatch(setNavHovered(false))}
         >
           {navigationTabs.map((tab) => (
             <button
@@ -333,12 +317,12 @@ export default function Home() {
               title={tab.label}
               aria-label={tab.label}
             >
-              {/* İkon kısmı */}
+              {/* Icon */}
               <span className="text-2xl flex-shrink-0">
                 {tab.icon}
               </span>
               
-              {/* Metin kısmı - Hover durumuna göre görünürlüğü React state kullanarak kontrol ediyoruz */}
+              {/* Text - visibility controlled by React state */}
               {navHovered && (
                 <span className="whitespace-nowrap text-sm ml-3 transition-all duration-300">
                   {tab.label}
@@ -348,20 +332,20 @@ export default function Home() {
           ))}
         </div>
         
-        {/* Yukarı çıkmak için ek buton */}
+        {/* Back to top button */}
         <div className="absolute -bottom-16 left-0 w-full flex justify-center">
           <button
             onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
             className="prism-glass p-2 rounded-full shadow-lg hover:bg-purple-500/20 transition-all duration-200 clickable"
-            title="Yukarı çık"
-            aria-label="Sayfanın başına git"
+            title="Go to top"
+            aria-label="Back to top"
           >
             <span className="text-xl">⬆️</span>
           </button>
         </div>
       </div>
 
-      {/* Mobil Navigasyon - Üstte tam genişlikte */}
+      {/* Mobile Navigation */}
       <div className="md:hidden sticky top-0 z-50 mb-4">
         <div className="prism-glass dynamic-card p-2 rounded-xl shadow-xl">
           <div className="flex overflow-x-auto snap-x scrollbar-hide space-x-2">
@@ -433,7 +417,7 @@ export default function Home() {
               <input
                 type="checkbox"
                 checked={useGpu}
-                onChange={(e) => setUseGpu(e.target.checked)}
+                onChange={(e) => dispatch(setUseGpu(e.target.checked))}
                 className="h-5 w-5 rounded accent-purple-500 bg-transparent border-purple-400/50 focus:ring-2 focus:ring-purple-500 focus:ring-offset-0 focus:ring-offset-transparent"
               />
               <span className="text-sm font-medium">🚀 Use GPU Acceleration</span>
@@ -443,7 +427,7 @@ export default function Home() {
               <input
                 type="checkbox"
                 checked={useAdvancedPrediction}
-                onChange={(e) => setUseAdvancedPrediction(e.target.checked)}
+                onChange={(e) => dispatch(setUseAdvancedPrediction(e.target.checked))}
                 className="h-5 w-5 rounded accent-purple-500 bg-transparent border-purple-400/50 focus:ring-2 focus:ring-purple-500 focus:ring-offset-0 focus:ring-offset-transparent"
               />
               <span className="text-sm font-medium">🔬 Advanced Analysis</span>
@@ -528,19 +512,19 @@ export default function Home() {
             </h3>
             <div className="space-y-3.5">
               {Object.entries(result.genre_probabilities)
-                .sort(([, a], [, b]) => b - a)
+                .sort(([, a], [, b]) => (b as number) - (a as number))
                 .slice(0, 7) // Show top 7 for cleaner UI
                 .map(([genre, probability], index) => (
                   <div key={genre} className="stagger-animation" style={{ animationDelay: `${index * 0.08}s` }}>
                     <div className="flex justify-between items-center mb-1.5">
                       <span className="text-base font-medium text-gray-200 capitalize">{genre}</span>
-                      <span className="text-base font-bold text-purple-300">{(probability * 100).toFixed(1)}%</span>
+                      <span className="text-base font-bold text-purple-300">{((probability as number) * 100).toFixed(1)}%</span>
                     </div>
                     <div className="bg-gray-700/60 rounded-full h-3.5 overflow-hidden shadow-inner">
                       <div
                         className="h-full bg-gradient-to-r from-purple-600 via-pink-500 to-red-500 rounded-full transition-all duration-1000 ease-out"
                         style={{
-                          width: `${probability * 100}%`,
+                          width: `${(probability as number) * 100}%`,
                           animationDelay: `${index * 0.15}s` // Stagger bar animation
                         }}
                       ></div>
@@ -609,7 +593,7 @@ export default function Home() {
         <div className="prism-glass enhanced-hover bio-luminescent rounded-2xl p-6 shadow-2xl">
           <h2 className="text-2xl font-bold mb-4 text-white">⚙️ Audio Processing Pipeline</h2>
           
-          {/* Seçili olan işlem modları */}
+          {/* Processing modes display */}
           <div className="mb-4 flex flex-wrap gap-2 justify-center">
             <div className={`px-3 py-1 rounded text-sm ${useGpu ? 'bg-green-500/20 text-green-300' : 'bg-gray-500/20 text-gray-300'}`}>
               {useGpu ? '🚀 GPU Accelerated' : '🖥️ CPU Mode'}
@@ -633,22 +617,12 @@ export default function Home() {
                 console.log('Processing complete:', result);
                 if (result && result.success === false) {
                   // Show error message if pipeline failed
-                  setError(result.error || "Pipeline processing failed");
+                  dispatch(setError(result.error || "Pipeline processing failed"));
                 }
-                setPipelineData(result);
+                dispatch(setPipelineData(result));
               }}
             />
           )}
-        </div>
-      )}
-
-      {activeTab === 'recommendations' && file && (
-        <div className="prism-glass enhanced-hover temporal-distortion rounded-2xl p-6 shadow-2xl">
-          <h2 className="text-2xl font-bold mb-4 text-white">💿 Music Recommendations</h2>
-          <MusicRecommendations
-            audioFile={file}
-            isVisible={true}
-          />
         </div>
       )}
 
@@ -659,39 +633,9 @@ export default function Home() {
         </div>
       )}
 
-      {activeTab === 'dashboard' && (
-        <div className="prism-glass enhanced-hover particle-physics rounded-2xl p-6 shadow-2xl">
-          <h2 className="text-2xl font-bold mb-4 text-white">📊 Model Performance Dashboard</h2>
-          <ModelDashboard apiUrl={API_BASE_URL} />
-        </div>
-      )}
-
-      {activeTab === 'ensemble' && (
-        <div className="prism-glass enhanced-hover hyperspace-tunnel rounded-2xl p-6 shadow-2xl">
-          <h2 className="text-2xl font-bold mb-4 text-white">🤖 Ensemble Prediction</h2>
-          <EnsemblePrediction audioFile={file} apiUrl={API_BASE_URL} />
-        </div>
-      )}
-      
-      {/* Seçili tab için içerik yoksa veya gerekli dosya yüklenmemişse bilgi mesajı */}
-      {((activeTab === 'recommendations' && !file) || 
-        (activeTab === 'advanced' && !result)) && (
-        <div className="prism-glass rounded-2xl p-8 text-center">
-          <h3 className="text-xl font-bold mb-4 text-white">
-            {activeTab === 'recommendations' ? '💿 Music Recommendations' : '🔬 Advanced Analysis'}
-          </h3>
-          <p className="text-gray-300">
-            {activeTab === 'recommendations' 
-              ? 'Please upload an audio file first to get music recommendations.' 
-              : 'Run a genre prediction first to see advanced analysis.'}
-          </p>
-        </div>
-      )}
-
-      {/* Yeni spectogram tab'i */}
-      {activeTab === 'spectogram' && (
+      {activeTab === 'spectrogram' && (
         <div className="prism-glass enhanced-hover quantum-entangled rounded-2xl p-6 shadow-2xl">
-          <h2 className="text-2xl font-bold mb-4 text-white">📊 Spectogram Analysis</h2>
+          <h2 className="text-2xl font-bold mb-4 text-white">📊 Spectrogram Analysis</h2>
           
           {!result?.visualization_data ? (
             <div className="bg-gray-800/40 rounded-xl p-8 text-center">
@@ -699,33 +643,119 @@ export default function Home() {
             </div>
           ) : (
             <div className="space-y-8">
-              <div>
-                <h3 className="text-xl font-semibold mb-3 text-white">Spectrogram</h3>
+              {/* Educational info section */}
+              <div className="glass-card p-4 bg-gradient-to-r from-blue-500/10 to-purple-500/10 rounded-lg mb-6">
+                <h4 className="text-lg font-medium text-blue-300 mb-2">What are spectrograms?</h4>
+                <p className="text-sm text-gray-300">
+                  Spectrograms are visual representations of the spectrum of frequencies in an audio signal as they vary with time.
+                  They help identify patterns and characteristics in music that define its genre.
+                </p>
+              </div>
+              
+              {/* Linear Spectrogram with enhanced description */}
+              <div className="glass-card p-6 rounded-lg">
+                <h3 className="text-xl font-semibold mb-2 text-white">Linear Spectrogram</h3>
+                <p className="text-sm text-gray-400 mb-4">
+                  Shows frequency distribution over time with linear frequency scaling. 
+                  Useful for analyzing higher frequency content.
+                </p>
                 {result.visualization_data.spectrogram ? (
-                  <img 
-                    src={result.visualization_data.spectrogram} 
-                    alt="Spectrogram" 
-                    className="w-full rounded-lg shadow-lg"
-                  />
+                  <div className="relative">
+                    <img 
+                      src={result.visualization_data.spectrogram} 
+                      alt="Spectrogram" 
+                      className="w-full rounded-lg shadow-lg hover:scale-[1.02] transition-transform cursor-zoom-in"
+                      onClick={() => window.open(result.visualization_data.spectrogram, '_blank')}
+                    />
+                    <div className="absolute bottom-2 right-2 bg-black/60 text-xs text-white px-2 py-1 rounded">
+                      Click to enlarge
+                    </div>
+                  </div>
                 ) : (
                   <p className="text-gray-300">Spectrogram data not available</p>
                 )}
               </div>
               
-              <div>
-                <h3 className="text-xl font-semibold mb-3 text-white">Mel Spectrogram</h3>
+              {/* Mel Spectrogram with enhanced description */}
+              <div className="glass-card p-6 rounded-lg">
+                <h3 className="text-xl font-semibold mb-2 text-white">Mel Spectrogram</h3>
+                <p className="text-sm text-gray-400 mb-4">
+                  Uses mel scale which better approximates human auditory perception.
+                  This representation is particularly useful for genre classification models.
+                </p>
                 {result.visualization_data.mel_spectrogram ? (
-                  <img 
-                    src={result.visualization_data.mel_spectrogram} 
-                    alt="Mel Spectrogram" 
-                    className="w-full rounded-lg shadow-lg"
-                  />
+                  <div className="relative">
+                    <img 
+                      src={result.visualization_data.mel_spectrogram} 
+                      alt="Mel Spectrogram" 
+                      className="w-full rounded-lg shadow-lg hover:scale-[1.02] transition-transform cursor-zoom-in"
+                      onClick={() => window.open(result.visualization_data.mel_spectrogram, '_blank')}
+                    />
+                    <div className="absolute bottom-2 right-2 bg-black/60 text-xs text-white px-2 py-1 rounded">
+                      Click to enlarge
+                    </div>
+                  </div>
                 ) : (
                   <p className="text-gray-300">Mel spectrogram data not available</p>
                 )}
               </div>
+              
+              {/* Genre characteristics section based on spectrograms */}
+              <div className="glass-card p-6 rounded-lg bg-gradient-to-r from-purple-500/10 to-pink-500/10">
+                <h3 className="text-xl font-semibold mb-3 text-white">Spectrogram Insight</h3>
+                <p className="text-sm text-gray-300 mb-4">
+                  Based on the spectrogram analysis, we can identify key characteristics of this {result.predicted_genre} track:
+                </p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {result.predicted_genre === 'Electronic' && (
+                    <>
+                      <div className="p-3 bg-black/30 rounded-lg">
+                        <span className="block text-blue-300 font-medium">Strong bass presence</span>
+                        <span className="text-xs text-gray-400">Visible as concentrated energy in lower frequencies</span>
+                      </div>
+                      <div className="p-3 bg-black/30 rounded-lg">
+                        <span className="block text-blue-300 font-medium">Repetitive patterns</span>
+                        <span className="text-xs text-gray-400">Shown as recurring structures in the spectrogram</span>
+                      </div>
+                    </>
+                  )}
+                  {result.predicted_genre === 'Rock' && (
+                    <>
+                      <div className="p-3 bg-black/30 rounded-lg">
+                        <span className="block text-blue-300 font-medium">Wide frequency range</span>
+                        <span className="text-xs text-gray-400">Energy spread across low, mid, and high frequencies</span>
+                      </div>
+                      <div className="p-3 bg-black/30 rounded-lg">
+                        <span className="block text-blue-300 font-medium">Strong mid-range presence</span>
+                        <span className="text-xs text-gray-400">Characteristic of guitar and vocal dominance</span>
+                      </div>
+                    </>
+                  )}
+                  {/* Add more genre-specific characteristics */}
+                  <div className="p-3 bg-black/30 rounded-lg">
+                    <span className="block text-blue-300 font-medium">Frequency distribution</span>
+                    <span className="text-xs text-gray-400">Typical of {result.predicted_genre} genre signature</span>
+                  </div>
+                  <div className="p-3 bg-black/30 rounded-lg">
+                    <span className="block text-blue-300 font-medium">Temporal structure</span>
+                    <span className="text-xs text-gray-400">Reflects rhythm patterns common in this genre</span>
+                  </div>
+                </div>
+              </div>
             </div>
           )}
+        </div>
+      )}
+      
+      {/* Info message when needed content is missing */}
+      {((activeTab === 'advanced' && !result)) && (
+        <div className="prism-glass rounded-2xl p-8 text-center">
+          <h3 className="text-xl font-bold mb-4 text-white">
+            🔬 Advanced Analysis
+          </h3>
+          <p className="text-gray-300">
+            Run a genre prediction first to see advanced analysis.
+          </p>
         </div>
       )}
     </div>
@@ -743,33 +773,6 @@ export default function Home() {
       </div>
     );
   };
-
-  const renderFooter = () => (
-    <div className="prism-glass dynamic-card rounded-2xl p-6 max-w-2xl mx-auto mt-12">
-      <div className="text-center space-y-4">
-        <div className="flex justify-center">
-          <div className="music-visualizer">
-            {[...Array(5)].map((_, i) => (
-              <div key={i} className="vis-bar"></div>
-            ))}
-          </div>
-        </div>
-        <h3 className="text-xl font-bold gradient-text-advanced">
-          🎵 Genrify - Advanced Music Classification
-        </h3>
-        <p className="text-sm text-gray-400">
-          Built with ❤️ using FastAPI, Next.js, TensorFlow, and Modern Web Technologies
-        </p>
-        <div className="flex justify-center space-x-4 text-sm text-gray-500">
-          <span>🚀 High Performance</span>
-          <span>•</span>
-          <span>🎯 Accurate Predictions</span>
-          <span>•</span>
-          <span>🎨 Beautiful UI</span>
-        </div>
-      </div>
-    </div>
-  );
 
   const renderFloatingButtons = () => (
     <>
@@ -790,15 +793,6 @@ export default function Home() {
       >
         🔄
       </button>
-
-      <button
-        className="clickable fab-enhanced"
-        style={{ bottom: '160px', right: '20px', position: 'fixed', zIndex: 50, pointerEvents: 'auto' }}
-        onClick={() => setActiveTab('dashboard')}
-        title="Dashboard"
-      >
-        📊
-      </button>
     </>
   );
 
@@ -810,15 +804,15 @@ export default function Home() {
       <div className="relative z-10 container mx-auto px-4 py-8">
         {renderHeader()}
 
-        {/* Mobil ve Masaüstü Navigasyon */}
+        {/* Mobile and Desktop Navigation */}
         {renderNavigation()}
 
-        {/* Tüm içerik için ortalanmış kapsayıcı */}
+        {/* Content container */}
         <div className="flex justify-center">
-          {/* Sol navigasyonla aynı genişlikte boş alan - sadece masaüstü görünümünde */}
+          {/* Left spacing for desktop */}
           <div className="w-20 flex-shrink-0 hidden md:block"></div>
           
-          {/* Ana içerik - tamamen ortalanmış */}
+          {/* Main content */}
           <div className="max-w-3xl flex-grow">
             {renderFileUpload()}
             {renderErrorMessage()}
@@ -828,11 +822,10 @@ export default function Home() {
             </div>
           </div>
           
-          {/* Sağ tarafta da dengelemek için eşit boşluk - sadece masaüstü görünümünde */}
+          {/* Right spacing for desktop */}
           <div className="w-20 flex-shrink-0 hidden md:block"></div>
         </div>
 
-        {renderFooter()}
         {renderFloatingButtons()}
       </div>
     </div>

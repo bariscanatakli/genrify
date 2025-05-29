@@ -3,8 +3,71 @@ import os
 import json
 import random
 from pathlib import Path
+
+# Make sure this function is at the very top and properly exportable
+def get_hann_window(window_length):
+    """
+    Compatibility wrapper for hann window that works across different SciPy versions.
+    Some versions have it in scipy.signal, others in scipy.signal.windows
+    """
+    try:
+        # Try newer SciPy structure first (scipy.signal.windows)
+        from scipy.signal.windows import hann
+        return hann(window_length)
+    except ImportError:
+        try:
+            # Try older SciPy structure (scipy.signal)
+            from scipy.signal import hann
+            return hann(window_length)
+        except ImportError:
+            # Last resort - implement a simple hann window ourselves
+            import numpy as np
+            print("[INFO] Using NumPy implementation of hann window function")
+            return 0.5 * (1 - np.cos(2 * np.pi * np.arange(window_length) / (window_length - 1)))
+
+# Explicitly declare functions that should be importable
+__all__ = ['get_hann_window', 'predict_genre', 'predict_genre_with_visualization', 'get_recommendations']
+
+# IMPORTANT: Move GPU configuration to top level
+# Configure TensorFlow GPU memory growth here if this module is imported directly
+try:
+    # Only configure if not already configured by main.py
+    import tensorflow as tf
+    if not os.environ.get('TF_GPU_CONFIGURED'):
+        gpus = tf.config.experimental.list_physical_devices('GPU')
+        if gpus:
+            for gpu in gpus:
+                try:
+                    tf.config.experimental.set_memory_growth(gpu, True)
+                    print(f"[INFO] Memory growth set for {gpu.name}")
+                except Exception as e:
+                    print(f"[WARNING] Could not set memory growth: {e}")
+            os.environ['TF_GPU_CONFIGURED'] = '1'
+except Exception as e:
+    print(f"[WARNING] Error configuring GPU: {e}")
+
+# GLOBAL PATCHING: Make sure scipy.signal has our hann window function
+# This needs to happen at module level, before any other imports might use it
+try:
+    import scipy.signal
+    if not hasattr(scipy.signal, 'hann'):
+        print("[INFO] Patching scipy.signal with custom hann window function at module level")
+        scipy.signal.hann = get_hann_window
+    
+    # Also patch the windows submodule if it exists
+    if hasattr(scipy.signal, 'windows') and not hasattr(scipy.signal.windows, 'hann'):
+        print("[INFO] Patching scipy.signal.windows with custom hann window function")
+        scipy.signal.windows.hann = get_hann_window
+        
+    # Verify patching worked
+    if hasattr(scipy.signal, 'hann'):
+        print("[INFO] Verified scipy.signal.hann is available")
+    if hasattr(scipy.signal, 'windows') and hasattr(scipy.signal.windows, 'hann'):
+        print("[INFO] Verified scipy.signal.windows.hann is available")
+except Exception as e:
+    print(f"[WARNING] Failed to patch scipy.signal at module level: {e}")
+
 import keras
-keras.config.enable_unsafe_deserialization()
 
 # Suppress TensorFlow C++ logs (INFO, WARNING). Must be set before TensorFlow import.
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
@@ -599,16 +662,29 @@ def predict_genre_with_visualization(audio_path, segment_seconds=30, overlap=0.5
         
         # 1. Generate spectrograms
         try:
+            eprint("[INFO] Generating spectrograms")
             import matplotlib
             matplotlib.use('Agg')  # Non-interactive backend
             import matplotlib.pyplot as plt
             import io
             import base64
             
-            # Raw spectrogram
-            D = librosa.amplitude_to_db(np.abs(librosa.stft(y)), ref=np.max)
+            # Raw spectrogram - use our hann window implementation
+            n_fft = 2048
+            win_length = n_fft
+            hop_length = win_length // 4
+            
+            # IMPORTANT: Use our custom hann window function here
+            window = get_hann_window(win_length)
+            eprint("[INFO] Successfully generated hann window")
+            
+            eprint("[INFO] Calculating STFT")
+            # Use custom window in the STFT calculation
+            D = librosa.stft(y, n_fft=n_fft, hop_length=hop_length, win_length=win_length, window=window)
+            D_db = librosa.amplitude_to_db(np.abs(D), ref=np.max)
+            
             plt.figure(figsize=(10, 4))
-            librosa.display.specshow(D, y_axis='hz', x_axis='time', sr=sr)
+            librosa.display.specshow(D_db, y_axis='hz', x_axis='time', sr=sr, hop_length=hop_length)
             plt.colorbar(format='%+2.0f dB')
             plt.title('Linear-frequency power spectrogram')
             
@@ -620,11 +696,14 @@ def predict_genre_with_visualization(audio_path, segment_seconds=30, overlap=0.5
             visualization_data['spectrogram'] = spectrogram_b64
             plt.close()
             
+            eprint("[INFO] Generated linear spectrogram successfully")
+            
             # Mel spectrogram
-            S = librosa.feature.melspectrogram(y=y, sr=sr, n_mels=128)
+            S = librosa.feature.melspectrogram(y=y, sr=sr, n_mels=128, n_fft=n_fft, 
+                                              hop_length=hop_length, win_length=win_length, window=window)
             S_dB = librosa.power_to_db(S, ref=np.max)
             plt.figure(figsize=(10, 4))
-            librosa.display.specshow(S_dB, x_axis='time', y_axis='mel', sr=sr, fmax=8000)
+            librosa.display.specshow(S_dB, x_axis='time', y_axis='mel', sr=sr, hop_length=hop_length, fmax=8000)
             plt.colorbar(format='%+2.0f dB')
             plt.title('Mel-frequency spectrogram')
             
@@ -635,22 +714,61 @@ def predict_genre_with_visualization(audio_path, segment_seconds=30, overlap=0.5
             visualization_data['mel_spectrogram'] = mel_spectrogram_b64
             plt.close()
             
+            eprint("[INFO] Generated mel spectrogram successfully")
+            
         except Exception as e:
-            eprint(f"[WARNING] Could not generate spectrograms: {e}")
+            eprint(f"[WARNING] Error generating visualizations: {e}")
+            import traceback
+            eprint(traceback.format_exc())  # Print full stack trace for debugging
+            visualization_data['spectrogram'] = None
+            visualization_data['mel_spectrogram'] = None
         
         # 2. Extract detailed audio features
         try:
-            # MFCC features
-            mfcc = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=13)
+            # Double-check that scipy.signal has our hann window function (fallback patching)
+            import scipy.signal
+            if not hasattr(scipy.signal, 'hann'):
+                eprint("[INFO] Re-patching scipy.signal with custom hann window function")
+                scipy.signal.hann = get_hann_window
+            
+            # Also patch the windows submodule again if needed
+            if hasattr(scipy.signal, 'windows') and not hasattr(scipy.signal.windows, 'hann'):
+                eprint("[INFO] Re-patching scipy.signal.windows with custom hann window function")
+                scipy.signal.windows.hann = get_hann_window
+                
+            # Verify that both patches worked inside this function scope
+            eprint(f"[DEBUG] scipy.signal.hann available: {hasattr(scipy.signal, 'hann')}")
+            if hasattr(scipy.signal, 'windows'):
+                eprint(f"[DEBUG] scipy.signal.windows.hann available: {hasattr(scipy.signal.windows, 'hann')}")
+            
+            # IMPORTANT: Get appropriate sized windows for each feature extraction
+            win_length_mfcc = 2048
+            window_mfcc = get_hann_window(win_length_mfcc)
+            
+            # MFCC features - pass the window explicitly
+            mfcc = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=13, n_fft=win_length_mfcc, 
+                                       win_length=win_length_mfcc, window=window_mfcc)
             visualization_data['mfcc_features'] = mfcc.tolist()
             
-            # Chroma features
-            chroma = librosa.feature.chroma_stft(y=y, sr=sr)
+            # Chroma features - pass the window explicitly
+            win_length_chroma = 2048
+            window_chroma = get_hann_window(win_length_chroma)
+            chroma = librosa.feature.chroma_stft(y=y, sr=sr, n_fft=win_length_chroma,
+                                                win_length=win_length_chroma, window=window_chroma)
             visualization_data['chroma_features'] = chroma.tolist()
             
-            # Spectral features
-            spectral_centroids = librosa.feature.spectral_centroid(y=y, sr=sr)[0]
-            spectral_rolloff = librosa.feature.spectral_rolloff(y=y, sr=sr)[0]
+            # Spectral features - use appropriate window sizes
+            spec_win_length = 2048
+            spec_window = get_hann_window(spec_win_length)
+            
+            # Pass window explicitly to all spectral feature extractions
+            spectral_centroids = librosa.feature.spectral_centroid(
+                y=y, sr=sr, n_fft=spec_win_length, win_length=spec_win_length, window=spec_window)[0]
+                
+            spectral_rolloff = librosa.feature.spectral_rolloff(
+                y=y, sr=sr, n_fft=spec_win_length, win_length=spec_win_length, window=spec_window)[0]
+                
+            # Zero crossing rate doesn't use a window, so no change needed here
             zero_crossing_rate = librosa.feature.zero_crossing_rate(y)[0]
             
             visualization_data['spectral_features'] = {
@@ -659,12 +777,16 @@ def predict_genre_with_visualization(audio_path, segment_seconds=30, overlap=0.5
                 'zero_crossing_rate': zero_crossing_rate.tolist()
             }
             
-            # Tempo
+            # Tempo - if it uses a window internally, ensure we patch properly
             tempo, _ = librosa.beat.beat_track(y=y, sr=sr)
             visualization_data['tempo'] = float(tempo)
             
+            eprint("[INFO] Successfully extracted audio features")
+            
         except Exception as e:
             eprint(f"[WARNING] Could not extract audio features: {e}")
+            import traceback
+            eprint(traceback.format_exc())
         
         # 3. Perform genre prediction (reuse existing logic)
         segments = extract_segments(audio_path, segment_seconds, overlap)
@@ -986,16 +1108,3 @@ def output_json(obj):
     sys.stdout.write(json.dumps(obj))
     sys.stdout.write("\n===JSON_END===\n")
     sys.stdout.flush()
-
-if __name__ == "__main__":
-    # Test code to run when executing this script directly
-    if len(sys.argv) > 1:
-        audio_path = sys.argv[1]
-        print(f"Processing {audio_path}...")
-        
-        if len(sys.argv) > 2 and sys.argv[2] == "recommend":
-            result = get_recommendations(audio_path)
-            print(json.dumps(result, indent=2))
-        else:
-            result = predict_genre(audio_path)
-            print(json.dumps(result, indent=2))

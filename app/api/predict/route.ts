@@ -1,129 +1,39 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { exec } from 'child_process';
-import { promisify } from 'util';
-import { writeFile } from 'fs/promises';
-import path from 'path';
-import os from 'os';
-import { extractJsonFromOutput, createPythonJsonCommandWithEnv } from '../../utils/json-helpers'; // Import the updated utility
 
-const execAsync = promisify(exec);
+const API_BASE_URL = process.env.API_URL || 'http://localhost:8888';
 
 export async function POST(request: NextRequest) {
   try {
-    // Handle file upload
+    // Extract the form data from the request
     const formData = await request.formData();
-    const file = formData.get('file') as File;
     
-    if (!file) {
-      return NextResponse.json({ error: 'No file provided' }, { status: 400 });
+    // Forward the request to FastAPI backend
+    const endpoint = formData.get('include_visualization') === 'true' 
+      ? `${API_BASE_URL}/predict-with-viz` 
+      : `${API_BASE_URL}/predict`;
+      
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      return NextResponse.json(
+        { error: errorData.detail || 'Prediction failed' },
+        { status: response.status }
+      );
     }
 
-    // Create a temporary file
-    const tempDir = os.tmpdir();
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    const filePath = path.join(tempDir, `upload-${uniqueSuffix}.mp3`);
+    // Return the prediction results directly from the API
+    const data = await response.json();
+    return NextResponse.json(data);
     
-    // Write the file to disk
-    const buffer = Buffer.from(await file.arrayBuffer());
-    await writeFile(filePath, buffer);
-    
-    // Fix path format - replace backslashes with forward slashes
-    const normalizedScriptPath = path.join(process.cwd(), 'app', 'api').replace(/\\/g, '/');
-    const normalizedFilePath = filePath.replace(/\\/g, '/');
-    
-    // Check if visualization data is requested
-    const includeVisualization = formData.get('include_visualization') === 'true';
-    
-    // Check if GPU/CUDA should be used (default to true if available)
-    const useGpu = formData.get('use_gpu') !== 'false';
-    
-    // Environment variables for TensorFlow GPU control and optimization
-    const envVars: Record<string, string> = {
-      'PYTHONIOENCODING': 'utf-8',
-      'TF_CPP_MIN_LOG_LEVEL': '2', // Reduce TF verbosity
-      // Critical TensorFlow optimizations
-      'TF_FORCE_GPU_ALLOW_GROWTH': 'true',
-      'TF_GPU_THREAD_MODE': 'gpu_private',
-      'TF_XLA_FLAGS': '--tf_xla_enable_xla_devices',
-      'CUDA_CACHE_DISABLE': '0',
-      'TF_ENABLE_ONEDNN_OPTS': '1'
-    };
-    
-    // If GPU usage is explicitly disabled
-    if (!useGpu) {
-      envVars['CUDA_VISIBLE_DEVICES'] = '-1'; // Disable GPU
-      // Remove GPU-specific optimizations when GPU is disabled
-      delete envVars['TF_FORCE_GPU_ALLOW_GROWTH'];
-      delete envVars['TF_GPU_THREAD_MODE'];
-      delete envVars['CUDA_CACHE_DISABLE'];
-    }
-    
-    try {
-      // Create command with environment variables using the new helper
-      const command = includeVisualization 
-        ? `${Object.entries(envVars).map(([k,v]) => `${k}=${v}`).join(' ')} ./venv/bin/python -c "import sys; sys.path.append('${normalizedScriptPath}'); from process import predict_genre_with_visualization, output_json; result = predict_genre_with_visualization('${normalizedFilePath}'); output_json(result)"`
-        : `${Object.entries(envVars).map(([k,v]) => `${k}=${v}`).join(' ')} ./venv/bin/python -c "import sys; sys.path.append('${normalizedScriptPath}'); from process import predict_genre, output_json; result = predict_genre('${normalizedFilePath}'); output_json(result)"`;
-      
-      const { stdout, stderr } = await execAsync(command, {
-        env: { ...process.env, ...envVars }, // Pass through current environment + our optimizations
-        maxBuffer: 1024 * 1024 * 50  // 50MB buffer for large outputs with visualization data
-      });
-      
-      if (stderr) { // Log Python's stderr for debugging
-        console.error("Python stderr (predict):", stderr);
-      }
-      
-      try {
-        const result = extractJsonFromOutput(stdout); // Use the utility
-        return NextResponse.json(result);
-      } catch (jsonError) {
-        console.error("JSON extraction error (predict):", jsonError);
-        console.error("Raw stdout from Python (predict - first 500 chars):", stdout.substring(0, 500));
-        
-        // Fall back to hardcoded mock data if JSON parsing fails
-        return NextResponse.json({
-          genre_probabilities: {
-            "Electronic": 0.7,
-            "Rock": 0.2,
-            "Pop": 0.05,
-            "Hip-Hop": 0.02,
-            "Folk": 0.01,
-            "Experimental": 0.01,
-            "Instrumental": 0.005,
-            "International": 0.005
-          },
-          predicted_genre: "Electronic",
-          confidence: 0.7,
-          using_mock: true,
-          error: "JSON parsing failed after Python execution"
-        });
-      }
-    } catch (pythonError) {
-      console.error('Python execution failed (predict):', pythonError);
-      
-      // Fall back to client-side mock data
-      return NextResponse.json({
-        genre_probabilities: {
-          "Electronic": 0.7,
-          "Rock": 0.2,
-          "Pop": 0.05,
-          "Hip-Hop": 0.02,
-          "Folk": 0.01,
-          "Experimental": 0.01,
-          "Instrumental": 0.005,
-          "International": 0.005
-        },
-        predicted_genre: "Electronic",
-        confidence: 0.7,
-        using_mock: true,
-        error: pythonError instanceof Error ? pythonError.message : String(pythonError)
-      });
-    }
-  } catch (requestError) {
-    console.error('Error processing request (predict):', requestError);
-    return NextResponse.json({ 
-      error: 'Failed to process audio file',
-      details: requestError instanceof Error ? requestError.message : String(requestError) 
-    }, { status: 500 });
+  } catch (error) {
+    console.error('Error in prediction API route:', error);
+    return NextResponse.json(
+      { error: 'Internal server error during prediction' },
+      { status: 500 }
+    );
   }
 }
