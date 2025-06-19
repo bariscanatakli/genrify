@@ -1,0 +1,15 @@
+<svg width="600" height="120" viewBox="0 0 600 120" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="grad" x1="0" y1="0" x2="600" y2="0" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#6a11cb"/>
+      <stop offset="1" stop-color="#2575fc"/>
+    </linearGradient>
+    <filter id="shadow" x="0" y="0" width="600" height="120">
+      <feDropShadow dx="0" dy="4" stdDeviation="4" flood-color="#000" flood-opacity="0.2"/>
+    </filter>
+  </defs>
+  <rect width="600" height="120" rx="24" fill="url(#grad)"/>
+  <text x="50%" y="50%" text-anchor="middle" dominant-baseline="middle" font-family="Segoe UI, Arial, sans-serif" font-size="56" font-weight="bold" fill="#fff" filter="url(#shadow)">
+    Genrify
+  </text>
+</svg>
