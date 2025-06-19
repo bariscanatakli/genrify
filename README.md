@@ -18,7 +18,7 @@
 ![Contributors](https://img.shields.io/github/contributors/bariscanatakli/genrify?style=flat-square)
 ![Stars](https://img.shields.io/github/stars/bariscanatakli/genrify?style=flat-square)
 
-[🚀 Demo](https://genrify-demo.vercel.app/) • [📖 Docs](https://docs.genrify.ai/) • [� Pipeline Notebook](./server/music_recommender_pipeline.ipynb) • [🀽� Issues](https://github.com/bariscanatakli/genrify/issues) • [💬 Discussions](https://github.com/bariscanatakli/genrify/discussions)
+[🚀 Demo](./server/music_recommender_pipeline.ipynb) • [📖 Docs](./server/music_recommender_pipeline.ipynb) • [� Pipeline Notebook](./server/music_recommender_pipeline.ipynb) • [🀽� Issues](https://github.com/bariscanatakli/genrify/issues) 
 
 </div>
 
