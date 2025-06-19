@@ -27,17 +27,24 @@ pip install -r requirements.txt
 
 ### 2. Start Backend Server
 ```bash
-# Option 1: Using script
+# Option 1: Using script (standard)
 cd server
 ./start_server.sh
 
-# Option 2: Using npm script
+# Option 1b: Using GPU-optimized script
+cd server
+./start-gpu.sh
+
+# Option 2: Using npm script (from root directory)
 npm run server
+
+# Option 2b: Using npm script for development (port 8000)
+npm run server:dev
 
 # Option 3: Direct uvicorn
 cd server
 source ../venv/bin/activate
-uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+uvicorn main:app --host 0.0.0.0 --port 8888 --reload
 ```
 
 ### 3. Start Frontend (separate terminal)
@@ -66,6 +73,29 @@ npm run dev:full
 - Upload audio file
 - Returns prediction + visualization data
 
+### Music Recommendations
+- **POST** `/recommend`
+- Upload audio file to get similar song recommendations
+- Returns list of recommended tracks
+
+### Batch Processing
+- **POST** `/predict-batch` or `/batch-predict`
+- Upload multiple audio files for batch processing
+- Returns predictions for all files
+
+### Ensemble Prediction
+- **POST** `/predict-ensemble`
+- Advanced prediction using multiple models
+- Returns enhanced prediction accuracy
+
+### Model Statistics
+- **GET** `/model-stats`
+- Returns detailed model performance statistics
+
+### Audio Processing
+- **POST** `/audio/process`
+- Raw audio processing endpoint
+
 ### API Documentation
 - **GET** `/docs` - Interactive Swagger UI
 - **GET** `/redoc` - ReDoc documentation
@@ -76,6 +106,14 @@ npm run dev:full
 - **GPU Acceleration**: Automatic detection and usage
 - **Supported Formats**: MP3, WAV, M4A
 - **Max File Size**: No explicit limit (reasonable files recommended)
+- **Default Port**: 8888 (production scripts), 8000 (development npm script)
+
+## Port Configuration
+
+The server runs on different ports depending on how it's started:
+- **Production/Scripts**: Port 8888 (`./start_server.sh`, `./start-gpu.sh`, `python main.py`)
+- **Development**: Port 8000 (`npm run server:dev`)
+- **Frontend expects**: Port 8888 by default (configurable via `NEXT_PUBLIC_API_URL`)
 
 ## Environment Variables
 
@@ -90,14 +128,14 @@ The server automatically sets optimal TensorFlow configurations:
 
 Update `.env.local`:
 ```
-NEXT_PUBLIC_API_URL=http://localhost:8000
+NEXT_PUBLIC_API_URL=http://localhost:8888
 ```
 
 ## Testing
 
 Test the API directly:
 ```bash
-curl -X POST "http://localhost:8000/predict" \
+curl -X POST "http://localhost:8888/predict" \
   -H "accept: application/json" \
   -H "Content-Type: multipart/form-data" \
   -F "file=@your-song.mp3" \
@@ -131,5 +169,5 @@ FROM python:3.11-slim
 COPY server/ /app
 WORKDIR /app
 RUN pip install -r requirements.txt
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8888"]
 ```

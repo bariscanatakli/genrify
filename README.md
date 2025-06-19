@@ -18,7 +18,7 @@
 ![Contributors](https://img.shields.io/github/contributors/bariscanatakli/genrify?style=flat-square)
 ![Stars](https://img.shields.io/github/stars/bariscanatakli/genrify?style=flat-square)
 
-[🚀 Demo](https://genrify-demo.vercel.app/) • [📖 Docs](https://docs.genrify.ai/) • [� Pipeline Notebook](./server/music_recommender_pipeline.ipynb) • [�🐛 Issues](https://github.com/bariscanatakli/genrify/issues) • [💬 Discussions](https://github.com/bariscanatakli/genrify/discussions)
+[🚀 Demo](https://genrify-demo.vercel.app/) • [📖 Docs](https://docs.genrify.ai/) • [� Pipeline Notebook](./server/music_recommender_pipeline.ipynb) • [🀽� Issues](https://github.com/bariscanatakli/genrify/issues) • [💬 Discussions](https://github.com/bariscanatakli/genrify/discussions)
 
 </div>
 
@@ -37,11 +37,11 @@
 - [🛠️ Tech Stack](#️-tech-stack)
 - [📁 Project Structure](#-project-structure)
 - [🐛 Troubleshooting](#-troubleshooting)
-- [📊 Benchmarks & Performance](#-benchmarks--performance)
+- [📊 Benchmarks &amp; Performance](#-benchmarks--performance)
 - [🤝 Contributing](#-contributing)
 - [📄 License](#-license)
 - [🙏 Acknowledgments](#-acknowledgments)
-- [📞 Support & Community](#-support--community)
+- [📞 Support &amp; Community](#-support--community)
 
 ---
 
@@ -68,18 +68,21 @@
 ## 🌟 Key Features
 
 ### 🎯 Core Functionality
+
 - **Real-time Classification**: Upload and get results in seconds
 - **Batch Processing**: Analyze multiple files simultaneously
 - **Confidence Scoring**: Get detailed probability distributions
 - **Format Support**: MP3, WAV, FLAC, OGG, and more
 
 ### 🔧 Technical Features
+
 - **GPU Acceleration**: CUDA support for faster processing
 - **REST API**: Clean, documented endpoints
 - **Responsive UI**: Modern React-based interface
 - **Error Handling**: Robust error management and recovery
 
 ### 📊 Analytics & Insights
+
 - **Genre Visualization**: Interactive charts and graphs
 - **Similarity Analysis**: Compare tracks and find similar genres
 - **Batch Reports**: Export results in multiple formats
@@ -92,11 +95,13 @@
 Our music genre classifier uses a sophisticated deep learning pipeline with the following key components:
 
 ### 🔊 Audio Processing
+
 - Raw audio converted to **mel-spectrograms** (128×128 resolution)
 - Signal processing via librosa with optimized parameters
 - Data augmentation through SpecAugment: time/frequency masking for improved robustness
 
 ### 🧠 Model Architecture
+
 ```python
 # Deep CNN Architecture
 Input: Mel-spectrogram (128 x 128 x 1)
@@ -112,15 +117,18 @@ Input: Mel-spectrogram (128 x 128 x 1)
 ```
 
 ### 📈 Performance
+
 - **67% accuracy** across 8 different music genres using advanced CNN architecture
 - Processing time: ~3 seconds per 30-second audio segment on CPU
 - Custom focal loss with label smoothing for imbalanced classes
 - Multi-segment analysis for comprehensive full-length track classification
 
 ### 🔍 Supported Genres
+
 Our model can identify the following music genres with high confidence:
+
 - Rock (69% recall)
-- Electronic (71% recall)  
+- Electronic (71% recall)
 - Experimental (51% recall)
 - Hip-Hop (78% recall)
 - Folk (58% recall)
@@ -129,6 +137,7 @@ Our model can identify the following music genres with high confidence:
 - International (77% precision)
 
 ### 🚀 Prediction Example
+
 ```python
 # Predict genre from audio file
 results = predict_genre_multi("song.mp3", "models/optimized_cnn_model.keras")
@@ -139,6 +148,7 @@ for genre, confidence in sorted(results.items(), key=lambda x: x[1], reverse=Tru
 ```
 
 ### 📊 Advanced Features
+
 - Multi-segment analysis for full-length tracks
 - Confidence scores for each potential genre
 - Robust to background noise and production variations
@@ -151,8 +161,9 @@ for genre, confidence in sorted(results.items(), key=lambda x: x[1], reverse=Tru
 🔬 **Want to dive deeper into the technical implementation?**
 
 For a comprehensive, interactive exploration of our music genre classification pipeline, including:
+
 - **Step-by-step data preprocessing** with visual examples
-- **Model architecture deep-dive** with layer-by-layer analysis  
+- **Model architecture deep-dive** with layer-by-layer analysis
 - **Training process visualization** with loss curves and metrics
 - **Real-time prediction examples** with actual audio files
 - **Performance analysis** with confusion matrices and genre-specific metrics
@@ -179,6 +190,7 @@ This notebook contains the complete end-to-end implementation used in production
 ### 📋 Prerequisites
 
 Before you begin, ensure you have the following installed:
+
 - **Node.js** (v18 or higher)
 - **Python** (3.11 or higher)
 - **Git**
@@ -229,7 +241,6 @@ pip install -r requirements.txt
 npm install
 
 ```
-
 
 </details>
 
@@ -301,24 +312,26 @@ Non-trainable params: 0 (0.00 B)
 
 <div align="center">
 
-| Metric                     | Value | Status        |
-|----------------------------|-------|---------------|
-|**Overall Accuracy**| 67%   | 🟢 Excellent  |
-|**Processing Speed**| ~3s/segment  | 🟢 Optimized |
-|**Model Size**      | 4.25MB| 🟢 Lightweight |
-|**Memory Usage**     | <4GB  | 🟢 Efficient  |
+| Metric                     | Value       | Status         |
+| -------------------------- | ----------- | -------------- |
+| **Overall Accuracy** | 67%         | 🟢 Excellent   |
+| **Processing Speed** | ~3s/segment | 🟢 Optimized   |
+| **Model Size**       | 4.25MB      | 🟢 Lightweight |
+| **Memory Usage**     | <4GB        | 🟢 Efficient   |
 
 </div>
 
 ### ⚡ Performance Benchmarks
 
 **Inference Speed Metrics:**
+
 - Single segment (30s): ~3 seconds on CPU
 - Full track analysis: Varies by track length
 - Multi-segment processing: Parallel processing supported
 - GPU acceleration: Available for faster batch processing
 
 **Model Efficiency:**
+
 - Compact architecture: Only 1.1M parameters
 - Memory efficient: Uses GroupNorm instead of BatchNorm
 - Optimized for production: TensorFlow Lite compatible
@@ -339,6 +352,7 @@ Experimental ████████████        51% recall (estimated)
 ```
 
 **Model Training Results:**
+
 - Final validation accuracy: ~67% across all genres
 - Training conducted on FMA dataset subset
 - Balanced dataset with data augmentation techniques
@@ -347,12 +361,14 @@ Experimental ████████████        51% recall (estimated)
 ### 🔬 Technical Implementation Details
 
 **Audio Processing Pipeline:**
+
 - Sample rate: 22,050 Hz (optimized for music analysis)
 - Segment length: 30 seconds (with 50% overlap for full tracks)
 - Mel-spectrogram resolution: 128 mel bands × time frames
 - Data augmentation: SpecAugment (time/frequency masking)
 
 **Model Architecture Specifics:**
+
 - Convolutional layers: 5 blocks with progressive filter increase
 - Normalization: GroupNorm (8 groups) for better generalization
 - Pooling: MaxPooling2D (2×2) for spatial dimension reduction
@@ -566,8 +582,8 @@ genrify/
 └── 🐳 docker/                  # Container Configs
 
 ```
----
 
+---
 
 ## 🐛 Troubleshooting
 
@@ -628,17 +644,19 @@ npm run dev -- --port 3001
 ### ⚡ Speed Comparisons
 
 **Processing Performance:**
-| Method | Time per 30s Segment | Full Track (3min) |
-|--------|---------------------|------------------|
-| **Genrify CPU** | ~3.0s | ~18s (6 segments) |
-| **Genrify GPU** | ~1.5s | ~9s (6 segments) |
-| Traditional Pipeline | ~12s | ~72s |
+
+| Method                | Time per 30s Segment | Full Track (3min) |
+| --------------------- | -------------------- | ----------------- |
+| **Genrify CPU** | ~3.0s                | ~18s (6 segments) |
+| **Genrify GPU** | ~1.5s                | ~9s (6 segments)  |
+| Traditional Pipeline  | ~12s                 | ~72s              |
 
 *Note: Actual processing time may vary based on hardware and audio complexity*
 
 ### 🎯 Accuracy Benchmarks
 
 **Dataset Performance Comparison:**
+
 ```
 Model Evaluation Results:
 
@@ -650,6 +668,7 @@ Model Evaluation Results:
 ```
 
 **Model Characteristics:**
+
 - **Architecture**: 5-layer CNN with GroupNorm
 - **Parameters**: 1.1M (lightweight design)
 - **Training**: FMA dataset with data augmentation
@@ -691,13 +710,13 @@ This project is licensed under the **MIT License** - see the [LICENSE](LICENSE) 
 
 ### Built With ❤️ Thanks To
 
-| Technology | Purpose | Link |
-|------------|---------|------|
-| 🎵 **FMA Dataset** | Training Data | [freemusicarchive.org](https://freemusicarchive.org/) |
-| 📚 **Librosa** | Audio Processing | [librosa.org](https://librosa.org/) |
-| 🧠 **TensorFlow** | Deep Learning | [tensorflow.org](https://tensorflow.org/) |
-| ⚛️ **Next.js** | Frontend Framework | [nextjs.org](https://nextjs.org/) |
-| 🚀 **FastAPI** | Backend Framework | [fastapi.tiangolo.com](https://fastapi.tiangolo.com/) |
+| Technology              | Purpose            | Link                                               |
+| ----------------------- | ------------------ | -------------------------------------------------- |
+| 🎵**FMA Dataset** | Training Data      | [freemusicarchive.org](https://freemusicarchive.org/) |
+| 📚**Librosa**     | Audio Processing   | [librosa.org](https://librosa.org/)                   |
+| 🧠**TensorFlow**  | Deep Learning      | [tensorflow.org](https://tensorflow.org/)             |
+| ⚛️**Next.js**   | Frontend Framework | [nextjs.org](https://nextjs.org/)                     |
+| 🚀**FastAPI**     | Backend Framework  | [fastapi.tiangolo.com](https://fastapi.tiangolo.com/) |
 
 ### Special Thanks
 
@@ -737,7 +756,7 @@ This project is licensed under the **MIT License** - see the [LICENSE](LICENSE) 
 
 ### 🚀 Ready to Start Classifying Music?
 
-**[🎵 Try the Demo](https://genrify-demo.vercel.app/)** • **[📖 Read the Docs](https://docs.genrify.ai/)** • **[� Explore Pipeline](./server/music_recommender_pipeline.ipynb)** • **[�💻 Get Started](#-quick-start)**
+**[🎵 Try the Demo](./server/music_recommender_pipeline.ipynb)** • **[📖 Read the Docs](./server/music_recommender_pipeline.ipynb)** • **[� Explore Pipeline](./server/music_recommender_pipeline.ipynb)** • **[🀽� Get Started](#-quick-start)**
 
 ---
 
